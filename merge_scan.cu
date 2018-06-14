@@ -1,23 +1,29 @@
 //#include "stdint.h"
+//input/output array sizes
+//inclusive sum
+
 #include <cstdint>
 #include <iostream>
 #include <fstream>
 #include <string>
 #include <chrono>
 #include <cub/cub.cuh>
+
 #include <stdio.h> 
 
 using namespace std;
 
-#define NUM_STATES  4
-#define NUM_CHARS   256
-#define NUM_THREADS 256
-#define NUM_LINES   30
+#define NUM_STATES 3
+#define NUM_CHARS  256
+#define NUM_THREADS 612
+#define NUM_LINES 30
+#define INPUT_FILE "./input_file.txt"
 
 typedef std::chrono::high_resolution_clock Clock;
 
 __constant__ int     d_D[NUM_STATES * NUM_CHARS];
 __constant__ uint8_t d_E[NUM_STATES * NUM_CHARS];
+
 
 template <int states>
 struct __align__(4) state_array{
@@ -34,9 +40,12 @@ struct __align__(4) state_array{
 
 };
 
+typedef state_array<NUM_STATES> SA;
+
+
 struct SA_op {
-    __device__ state_array<NUM_STATES> operator()(state_array<NUM_STATES> &a, state_array<NUM_STATES> &b){
-        state_array<NUM_STATES> c;
+    __device__ SA operator()(SA &a, SA &b){
+        SA c;
         for(int i = 0; i < NUM_STATES; i ++) 
             c.v[i] = b.v[a.v[i]];
         
@@ -44,40 +53,36 @@ struct SA_op {
     }
 };
 
+ 
 __global__
 void merge_scan (int num_chars, char* line, int* len_array, int array_len, int* output_array){
 
-    typedef state_array<NUM_STATES> SA;
-    typedef cub::BlockScan<state_array<NUM_STATES>, NUM_THREADS> BlockScan;
+
+    typedef cub::BlockScan<SA, NUM_THREADS> BlockScan;
   //  typedef cub::BlockScan<int, NUM_THREADS> BlockScan2;
 
     __shared__ typename BlockScan::TempStorage temp_storage;
    // __shared__ typename BlockScan2::TempStorage temp_storage2;
 
-
-
-    int idx = threadIdx.x;
     int block_num = blockIdx.x;
 
-    int len = len_array[block_num];
+    int len = len_array[blockIdx.x];
 
-    if(idx <= len) {
+    for(int loop = threadIdx.x; loop < len; loop += NUM_THREADS) {
+        if(loop < len) {
 
-        SA a = SA();
-    	SA b = SA();
-    	SA temp = SA();
-    	for(int i = 0; i < NUM_STATES; i++){
-            char c = line[idx + block_num * array_len];
-            int x = d_D[(int)(i* NUM_CHARS + c)];
-    	    a.set_SA(i, x);
-    	}
+            SA a = SA();
+        	for(int i = 0; i < NUM_STATES; i++){
+                char c = line[loop + block_num * array_len];
+                int x = d_D[(int)(i* NUM_CHARS + c)];
+        	    a.set_SA(i, x);
+        	}
 
-        BlockScan(temp_storage).InclusiveScan(a, b, SA_op());
+            BlockScan(temp_storage).InclusiveScan(a, a, SA_op());
 
-        if(idx > 0) {
-            char c = line[idx + block_num * array_len];
-            int state = b.v[0];
-            output_array[idx + block_num * array_len ] = (int) d_E[(int) (NUM_CHARS * state + c)];
+            char c = line[loop + block_num * array_len];
+            int state = a.v[0];
+            output_array[loop + block_num * array_len ] = (int) d_E[(int) (NUM_CHARS * state + c)];
             /*
             int start = (int) d_E[(int) (NUM_CHARS * state + c)];
             int end;
@@ -133,8 +138,6 @@ void Dtable_generate()
         add_default_transition(i ,i);
     
     add_default_transition(2 , 1);
-    add_default_transition(3 , 0);
-    add_transition(0, '\\', 3);
     add_transition(0, '[', 1);
     add_transition(1, '\\', 2);
     add_transition(1, ']', 0);
@@ -150,7 +153,7 @@ void Etable_generate()
 
 int max_length()
 {
-    std::ifstream is("./input_file.txt");   // open file
+    std::ifstream is(INPUT_FILE);   // open file
     string line;
     int length = 0; 
 
@@ -187,12 +190,13 @@ int main() {
     cudaMalloc((char**) &d_len_array, NUM_LINES * sizeof(int));
 
 
-    std::ifstream is("./input_file.txt");
+    std::ifstream is(INPUT_FILE);
 
     string line;
     char* input_strings = new char[NUM_LINES * array_len];
 
     int len_array[NUM_LINES];
+    //int offset_array[NUM_LINES];
     int count = 0;
 
     //start timer
@@ -212,7 +216,6 @@ int main() {
 
         if(count == NUM_LINES){
           
-           // len = line.length();
             cudaMemcpy(d_line, input_strings, array_len * sizeof(char) * NUM_LINES, cudaMemcpyHostToDevice);     
             cudaMemcpy(d_len_array, len_array, NUM_LINES * sizeof(int), cudaMemcpyHostToDevice);     
 
@@ -242,12 +245,12 @@ int main() {
 
         cudaMemcpy(d_line, input_strings, array_len * sizeof(char) * NUM_LINES, cudaMemcpyHostToDevice);     
         cudaMemcpy(d_len_array, len_array, NUM_LINES * sizeof(int), cudaMemcpyHostToDevice);     
-
+        cudaDeviceSynchronize();
 
         dim3 dimGrid(count,1,1);
         dim3 dimBlock(NUM_THREADS,1,1);
         merge_scan<<<dimGrid, dimBlock>>>(1, d_line, d_len_array, array_len, d_output_array);
-       
+        cudaDeviceSynchronize();
         cudaMemcpy(h_output_array, d_output_array, array_len  * sizeof(int) * NUM_LINES, cudaMemcpyDeviceToHost);
         
         for(int j = 0; j < count; j++) {
@@ -266,6 +269,7 @@ int main() {
     auto t2 = Clock::now();
     cout << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << " microseconds" << endl;
     
+
     cudaFree(d_output_array);
     cudaFree(d_line);
 
