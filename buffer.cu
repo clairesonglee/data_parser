@@ -52,7 +52,7 @@ struct SA_op {
 
  
 __global__
-void merge_scan (int num_chars, char* line, int* len_array, int array_len, int* output_array){
+void merge_scan (char* line, int* len_array, int* offset_array, int* output_array){
 
 
     typedef cub::BlockScan<SA, NUM_THREADS> BlockScan;
@@ -237,7 +237,7 @@ int main() {
 
         dim3 dimGrid(NUM_LINES,1,1);
         dim3 dimBlock(NUM_THREADS,1,1);
-        merge_scan<<<dimGrid, dimBlock>>>(1, d_buffer, d_len_array, BUFFER_SIZE, d_output_array);
+        merge_scan<<<dimGrid, dimBlock>>>(d_buffer, d_len_array, d_offset_array, d_output_array);
        
         cudaMemcpy(h_output_array, d_output_array, BUFFER_SIZE * sizeof(int), cudaMemcpyDeviceToHost);
         
