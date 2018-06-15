@@ -16,7 +16,7 @@ using namespace std;
 #define NUM_LINES 100
 #define NUM_BLOCKS 30
 
-#define BUFFER_SIZE 2500
+#define BUFFER_SIZE 25000
 #define NUM_COMMAS 10 
 #define INPUT_FILE "./input_file.txt"
 
@@ -48,7 +48,7 @@ struct __align__(4) state_array{
 typedef state_array<NUM_STATES> SA;
 
 //a = b
-__device__ void SA_copy(SA & a, SA &b) {
+__device__ void SA_copy(SA &a, SA &b) {
     for(int i = 0; i < NUM_STATES; i ++) 
         a.v[i] = b.v[i];
 }
@@ -56,21 +56,21 @@ __device__ void SA_copy(SA & a, SA &b) {
 struct SA_op {
     __device__ SA operator()(SA &a, SA &b){
         SA c;
-        for(int i = 0; i < NUM_STATES; i ++) 
+        for(int i = 0; i < NUM_STATES; i++) 
             c.v[i] = b.v[a.v[i]];
         
         return c;
     }
 };
 
- //no array_len
-//offest_ptr_array
+
 __global__
-void merge_scan (char* line, int* len_array, int* offset_array, int* output_array, int* index, int total_lines){
+void merge_scan (char* line, int* len_array, int* offset_array, int* output_array, 
+                 int* index, int total_lines){
 
 
-    typedef cub::BlockScan<SA, NUM_THREADS> BlockScan;
-    typedef cub::BlockScan<int, NUM_THREADS> BlockScan2;
+    typedef cub::BlockScan<SA, NUM_THREADS> BlockScan; // change name
+    typedef cub::BlockScan<int, NUM_THREADS> BlockScan2; //
 
     __shared__ typename BlockScan::TempStorage temp_storage;
     __shared__ typename BlockScan2::TempStorage temp_storage2;
@@ -292,18 +292,33 @@ int main() {
         cudaMalloc((int**) &d_num_commas, sizeof(int));
 
         int temp = 0;
+
+        auto t1 = Clock::now();
+
         cudaMemcpy(d_buffer, buffer, BUFFER_SIZE * sizeof(char), cudaMemcpyHostToDevice);     
         cudaMemcpy(d_len_array, len_array, line_count * sizeof(int), cudaMemcpyHostToDevice);     
         cudaMemcpy(d_offset_array, offset_array, line_count * sizeof(int), cudaMemcpyHostToDevice);    
         cudaMemcpy(d_num_commas, &temp, sizeof(int), cudaMemcpyHostToDevice);
 
+        auto t2 = Clock::now();
+
+        cout <<"Host to Device:" <<std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << " microseconds" << endl;
+
         dim3 dimGrid(NUM_BLOCKS,1,1);
         dim3 dimBlock(NUM_THREADS,1,1);
 
+        auto t3 = Clock::now();
+
         merge_scan<<<dimGrid, dimBlock>>>(d_buffer, d_len_array, d_offset_array, d_output_array, d_num_commas,line_count);
 
+        auto t4 = Clock::now();
+        cout << "data trans:" << std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count() << " microseconds" << endl;
 
+        auto t5 = Clock::now();
         cudaMemcpy(h_output_array, d_output_array, BUFFER_SIZE * sizeof(int), cudaMemcpyDeviceToHost);
+        auto t6 = Clock::now();
+        cout << "Device to Host:" << std::chrono::duration_cast<std::chrono::microseconds>(t6 - t5).count() << " microseconds" << endl;
+
 
          for(int i = 0; i < line_count; i++) {
             for(int j = 0; j < NUM_COMMAS; j++) {
