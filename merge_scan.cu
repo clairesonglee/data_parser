@@ -1,6 +1,7 @@
 //#include "stdint.h"
 //input/output array sizes
 //inclusive sum
+//changed
 
 #include <cstdint>
 #include <iostream>
@@ -83,7 +84,6 @@ void merge_scan (int num_chars, char* line, int* len_array, int array_len, int* 
     for(int loop = threadIdx.x; loop < len; loop += NUM_THREADS) {
         if(loop < len) {
 
-            //SA a = SA();
             if(loop % NUM_THREADS == 0) {
                 SA_copy(a, prev_value);
             }
@@ -99,8 +99,6 @@ void merge_scan (int num_chars, char* line, int* len_array, int array_len, int* 
             BlockScan(temp_storage).InclusiveScan(a, a, SA_op());
             __syncthreads();
 
-
-
             char c = line[loop + block_num * array_len];
             int state = a.v[0];
             int start = (int) d_E[(int) (NUM_CHARS * state + c)];
@@ -115,6 +113,7 @@ void merge_scan (int num_chars, char* line, int* len_array, int array_len, int* 
             }   
         }
         __syncthreads();
+
 
     }
 
