@@ -11,9 +11,9 @@ using namespace std;
 #define NUM_STATES 3
 #define NUM_CHARS  256
 #define NUM_THREADS 612
-#define NUM_LINES 30
+#define NUM_LINES 50
 
-#define BUFFER_SIZE = 2500
+#define BUFFER_SIZE 2500
 #define INPUT_FILE "./input_file.txt"
 
 typedef std::chrono::high_resolution_clock Clock;
@@ -52,8 +52,7 @@ struct SA_op {
 
  
 __global__
-void merge_scan (char* line, int* len_array, int* offset_array, int* output_array){
-
+void merge_scan (int line_count, char* buffer, int* len_array, int* offset_array, int* output_array){
 
     typedef cub::BlockScan<SA, NUM_THREADS> BlockScan;
   //  typedef cub::BlockScan<int, NUM_THREADS> BlockScan2;
@@ -80,12 +79,7 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
             char c = line[loop + block_num * array_len];
             int state = a.v[0];
             output_array[loop + block_num * array_len ] = (int) d_E[(int) (NUM_CHARS * state + c)];
-            /*
-            int start = (int) d_E[(int) (NUM_CHARS * state + c)];
-            int end;
-            BlockScan2(temp_storage2).InclusiveSum(start, end);
-            output_array[idx - 1] = end;
-            */
+
         }
     }
 
@@ -148,21 +142,6 @@ void Etable_generate()
     add_emission(0, ',', 1);
 }
 
-int max_length()
-{
-    std::ifstream is(INPUT_FILE);   // open file
-    string line;
-    int length = 0; 
-
-    while (getline(is, line)){
-        if(length < line.length())
-            length = line.length();
-    }
-    is.close();
-    
-    return length; 
-}
-
 int main() {
 
     Dtable_generate();
@@ -174,7 +153,6 @@ int main() {
     int* h_output_array = new int[BUFFER_SIZE];
 
     std::ifstream is(INPUT_FILE);
-
 
     // get length of file:
     is.seekg (0, std::ios::end);
@@ -198,6 +176,7 @@ int main() {
         while (getline(is, line)){
 
             line_length = line.size();
+            //cout<<"line "<<line<<endl;
 
             // keep track of lengths of each line
             len_array[line_count] = line_length;
@@ -216,6 +195,7 @@ int main() {
 
         // read data as a block:
         is.read (buffer,length);
+        //cout<<"buffer "<<buffer<<endl;
 
         //Memory allocation for kernel functions
     
@@ -237,35 +217,34 @@ int main() {
 
         dim3 dimGrid(NUM_LINES,1,1);
         dim3 dimBlock(NUM_THREADS,1,1);
-        merge_scan<<<dimGrid, dimBlock>>>(d_buffer, d_len_array, d_offset_array, d_output_array);
-       
+        merge_scan<<<dimGrid, dimBlock>>>(line_count, d_buffer, d_len_array, d_offset_array, d_output_array);
+
         cudaMemcpy(h_output_array, d_output_array, BUFFER_SIZE * sizeof(int), cudaMemcpyDeviceToHost);
         
-        for(int j = 0; j < NUM_LINES; j++) {
-            for(int i = 0; i < len_array[j]; i++) {
-               //if(h_output_array[i + j * array_len] == 1) 
-                   cout << i << " "; 
-            }
-            cout << endl;
-        }
+        // for(int j = 0; j < line_count; j++) {
+        //     for(int i = 0; i < len_array[j]; i++) {
+        //        if(h_output_array[i + j * len_array[j]] == 1) 
+        //            cout << i << " "; 
+        //     }
+        //     cout << endl;
+        // }
 
         clear_array<<<dimGrid, dimBlock>>>(d_output_array, BUFFER_SIZE);
 
         // close filestream
         is.close();
 
-        // delete temporary buffer
-        delete [] buffer;
-        delete [] len_array;
-        delete [] offset_array;
 
         cudaFree(d_output_array);
         cudaFree(d_buffer);
         cudaFree(d_len_array);
         cudaFree(d_offset_array);
 
-        free(h_output_array);
-
+        // delete temporary buffers
+        delete [] buffer;
+        delete [] len_array;
+        delete [] offset_array;
+        delete [] h_output_array;
     }
 
 
