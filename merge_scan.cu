@@ -1,7 +1,3 @@
-//#include "stdint.h"
-//input/output array sizes
-//inclusive sum
-//changed
 
 #include <cstdint>
 #include <iostream>
@@ -22,8 +18,12 @@ using namespace std;
 
 typedef std::chrono::high_resolution_clock Clock;
 
+//Transition table for GPU function
 __constant__ int     d_D[NUM_STATES * NUM_CHARS];
+//Emission table for GPU function
 __constant__ uint8_t d_E[NUM_STATES * NUM_CHARS];
+
+
 
 
 template <int states>
@@ -43,6 +43,7 @@ struct __align__(4) state_array{
 
 typedef state_array<NUM_STATES> SA;
 
+//a = b
 __device__ void SA_copy(SA & a, SA &b) {
     for(int i = 0; i < NUM_STATES; i ++) 
         a.v[i] = b.v[i];
@@ -58,9 +59,10 @@ struct SA_op {
     }
 };
 
- 
+ //no array_len
+//offest_ptr_array
 __global__
-void merge_scan (int num_chars, char* line, int* len_array, int array_len, int* output_array){
+void merge_scan (char* line, int* len_array, int offset_array, int* output_array, int* index, int total_lines){
 
 
     typedef cub::BlockScan<SA, NUM_THREADS> BlockScan;
@@ -71,50 +73,58 @@ void merge_scan (int num_chars, char* line, int* len_array, int array_len, int* 
     __shared__ SA prev_value;
     __shared__ int prev_sum;
 
+    int len, offest;
 
-    int block_num = blockIdx.x;
-    int len = len_array[blockIdx.x];
+    int block_num = atomicInc(index, INT_MAX);
+    while(block_num < total_lines) {
+        
+        len = len_array[block_num];
+        offset = offset_array[block_num];
 
-    SA a = SA();
-    SA_copy(prev_value , a);
+        //initialize starting values
+        SA a = SA();
+        SA_copy(prev_value , a);
 
-    prev_sum = 0;
+        prev_sum = 0;
 
+        //If the string is longer than NUM_THREADS
+        for(int loop = threadIdx.x; loop < len; loop += NUM_THREADS) {
+            if(loop < len) {
+                char c = line[loop + offset];
 
-    for(int loop = threadIdx.x; loop < len; loop += NUM_THREADS) {
-        if(loop < len) {
-
-            if(loop % NUM_THREADS == 0) {
-                SA_copy(a, prev_value);
-            }
-
-            else {   
-                for(int i = 0; i < NUM_STATES; i++){
-                    char c = line[loop + block_num * array_len];
-                    int x = d_D[(int)(i* NUM_CHARS + c)];
-                    a.set_SA(i, x);
+                //Check that it has to fetch the data from the previous loop
+                if(loop % NUM_THREADS == 0) {
+                    SA_copy(a, prev_value);
                 }
-            }
 
-            BlockScan(temp_storage).InclusiveScan(a, a, SA_op());
+                else {   
+                    for(int i = 0; i < NUM_STATES; i++){
+                        int x = d_D[(int)(i* NUM_CHARS + c)];
+                        a.set_SA(i, x);
+                    }
+                }
+
+                BlockScan(temp_storage).InclusiveScan(a, a, SA_op());
+                __syncthreads();
+
+              
+                int state = a.v[0];
+                int start = (int) d_E[(int) (NUM_CHARS * state + c)];
+                int end;
+                BlockScan2(temp_storage2).InclusiveSum(start, end);
+                if(start == 1) 
+                    output_array[end + offset - 1 + prev_sum] = loop;
+
+                //save the values for the next loop
+                if((loop + 1) % NUM_THREADS == 0) {
+                    SA_copy(prev_value , a);
+                    prev_sum = end;
+                }   
+            }
             __syncthreads();
 
-            char c = line[loop + block_num * array_len];
-            int state = a.v[0];
-            int start = (int) d_E[(int) (NUM_CHARS * state + c)];
-            int end;
-            BlockScan2(temp_storage2).InclusiveSum(start, end);
-            if(start == 1) 
-                output_array[end + block_num * array_len - 1 + prev_sum] = loop;
-
-            if((loop + 1) % NUM_THREADS == 0) {
-                SA_copy(prev_value , a);
-                prev_sum = end;
-            }   
         }
-        __syncthreads();
-
-
+        block_num = atomicInc(index, INT_MAX);
     }
 
 }
@@ -250,13 +260,15 @@ int main() {
 
             dim3 dimGrid(NUM_LINES,1,1);
             dim3 dimBlock(NUM_THREADS,1,1);
-            merge_scan<<<dimGrid, dimBlock>>>(1, d_line, d_len_array, array_len, d_output_array);
+            merge_scan<<<dimGrid, dimBlock>>>(d_line, d_len_array, array_len, d_output_array);
            
             cudaMemcpy(h_output_array, d_output_array, array_len  * sizeof(int) * NUM_LINES, cudaMemcpyDeviceToHost);
             
             for(int j = 0; j < NUM_LINES; j++) {
                 for(int i = 0; i < array_len; i++) {
-                    cout << h_output_array[i + j * array_len] << " ";
+                    int index = h_output_array[i + j * array_len];
+                    if (index != 0)
+                        cout << index << " ";
 
                 }
                 cout << endl;
@@ -282,7 +294,9 @@ int main() {
         
         for(int j = 0; j < NUM_LINES; j++) {
                 for(int i = 0; i < array_len; i++) {
-                    cout << h_output_array[i + j * array_len] << " ";
+                    int index = h_output_array[i + j * array_len];
+                    if (index != 0)
+                        cout << index << " ";
 
                 }
                 cout << endl;   
