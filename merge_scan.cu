@@ -20,8 +20,6 @@ using namespace std;
 #define NUM_LINES 2
 #define INPUT_FILE "./input_file.txt"
 
-#define test 1
-
 typedef std::chrono::high_resolution_clock Clock;
 
 __constant__ int     d_D[NUM_STATES * NUM_CHARS];
