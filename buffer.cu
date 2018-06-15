@@ -1,32 +1,25 @@
-
 #include <cstdint>
 #include <iostream>
 #include <fstream>
 #include <string>
 #include <chrono>
 #include <cub/cub.cuh>
-
 #include <stdio.h> 
 
 using namespace std;
 
-#define NUM_STATES 4
+#define NUM_STATES 3
 #define NUM_CHARS  256
-#define NUM_THREADS 128
-#define NUM_LINES 5
+#define NUM_THREADS 612
+#define NUM_LINES 50
 
 #define BUFFER_SIZE 2500
-#define NUM_COMMAS 10 
 #define INPUT_FILE "./input_file.txt"
 
 typedef std::chrono::high_resolution_clock Clock;
 
-//Transition table for GPU function
 __constant__ int     d_D[NUM_STATES * NUM_CHARS];
-//Emission table for GPU function
 __constant__ uint8_t d_E[NUM_STATES * NUM_CHARS];
-
-
 
 
 template <int states>
@@ -39,18 +32,13 @@ struct __align__(4) state_array{
     }
 
     __device__ void set_SA(int index, int x) {
-       v[index] = x;
+	   v[index] = x;
     }
 
 };
 
 typedef state_array<NUM_STATES> SA;
 
-//a = b
-__device__ void SA_copy(SA & a, SA &b) {
-    for(int i = 0; i < NUM_STATES; i ++) 
-        a.v[i] = b.v[i];
-}
 
 struct SA_op {
     __device__ SA operator()(SA &a, SA &b){
@@ -62,79 +50,37 @@ struct SA_op {
     }
 };
 
- //no array_len
-//offest_ptr_array
+ 
 __global__
-void merge_scan (char* line, int* len_array, int* offset_array, int* output_array, int* index, int total_lines){
-
+void merge_scan (int line_count, char* buffer, int* len_array, int* offset_array, int* output_array){
 
     typedef cub::BlockScan<SA, NUM_THREADS> BlockScan;
-    typedef cub::BlockScan<int, NUM_THREADS> BlockScan2;
+  //  typedef cub::BlockScan<int, NUM_THREADS> BlockScan2;
 
     __shared__ typename BlockScan::TempStorage temp_storage;
-    __shared__ typename BlockScan2::TempStorage temp_storage2;
-    __shared__ SA prev_value;
-    __shared__ int prev_sum;
-    __shared__ int line_num;
+   // __shared__ typename BlockScan2::TempStorage temp_storage2;
 
-    int len, offset;
-    int block_num;
+    int block_num = blockIdx.x;
 
-    if(threadIdx.x == 0) 
-        line_num = atomicInc((unsigned int*) &index[0], INT_MAX);
-    __syncthreads();
-    block_num =  line_num;
+    int len = len_array[blockIdx.x];
 
-    while(block_num < total_lines) {
-        len = len_array[block_num];
-        offset = offset_array[block_num];
+    for(int loop = threadIdx.x; loop < len; loop += NUM_THREADS) {
+        if(loop < len) {
 
-        //initialize starting values
-        SA a = SA();
-        SA_copy(prev_value , a);
+            SA a = SA();
+        	for(int i = 0; i < NUM_STATES; i++){
+                char c = line[loop + block_num * array_len];
+                int x = d_D[(int)(i* NUM_CHARS + c)];
+        	    a.set_SA(i, x);
+        	}
 
-        prev_sum = 0;
+            BlockScan(temp_storage).InclusiveScan(a, a, SA_op());
 
-        //If the string is longer than NUM_THREADS
-        for(int loop = threadIdx.x; loop < len; loop += NUM_THREADS) {
-            if(loop < len) {
-                char c = line[loop + offset];
-
-                //Check that it has to fetch the data from the previous loop
-                if(loop % NUM_THREADS == 0) {
-                    SA_copy(a, prev_value);
-                }
-
-                else {   
-                    for(int i = 0; i < NUM_STATES; i++){
-                        int x = d_D[(int)(i* NUM_CHARS + c)];
-                        a.set_SA(i, x);
-                    }
-                }
-
-                BlockScan(temp_storage).InclusiveScan(a, a, SA_op());
-                __syncthreads();
-
-                int state = a.v[0];
-                int start = (int) d_E[(int) (NUM_CHARS * state + c)];
-                int end;
-                BlockScan2(temp_storage2).InclusiveSum(start, end);
-                if(start == 1) 
-                    output_array[end - 1 + block_num * NUM_COMMAS + prev_sum] = loop;
-
-                //save the values for the next loop
-                if((loop + 1) % NUM_THREADS == 0) {
-                    SA_copy(prev_value , a);
-                    prev_sum = end;
-                }   
-            }
-            __syncthreads();
+            char c = line[loop + block_num * array_len];
+            int state = a.v[0];
+            output_array[loop + block_num * array_len ] = (int) d_E[(int) (NUM_CHARS * state + c)];
 
         }
-        if(threadIdx.x == 0) 
-            line_num = atomicInc((unsigned int*) &index[0], INT_MAX);
-         __syncthreads();
-        block_num =  line_num;
     }
 
 }
@@ -183,12 +129,9 @@ void Dtable_generate()
         add_default_transition(i ,i);
     
     add_default_transition(2 , 1);
-    add_default_transition(3 , 0);
-
     add_transition(0, '[', 1);
     add_transition(1, '\\', 2);
     add_transition(1, ']', 0);
-    add_transition(0, '\\', 3);
 }
 
 void Etable_generate() 
@@ -198,23 +141,6 @@ void Etable_generate()
     
     add_emission(0, ',', 1);
 }
-
-int max_length()
-{
-    std::ifstream is(INPUT_FILE);   // open file
-    string line;
-    int length = 0; 
-
-    while (getline(is, line)){
-        if(length < line.length())
-            length = line.length();
-    }
-    is.close();
-    
-    return length; 
-}
-
-
 
 int main() {
 
@@ -247,8 +173,6 @@ int main() {
         int* len_array = new int[NUM_LINES];
         int* offset_array = new int[NUM_LINES];
 
-        offset_array[0] = 0;
-
         while (getline(is, line)){
 
             line_length = line.size();
@@ -258,8 +182,8 @@ int main() {
             len_array[line_count] = line_length;
 
             // update offset from start of file
-            char_offset += line_length + 1;
-            offset_array[line_count + 1] = char_offset;
+            char_offset += line_length;
+            offset_array[line_count] = char_offset;
 
             // increment line index
             line_count++;
@@ -282,36 +206,28 @@ int main() {
         cudaMalloc((char**) &d_buffer, BUFFER_SIZE * sizeof(char));
 
         int* d_len_array;
-        cudaMalloc((int**) &d_len_array, line_count * sizeof(int));
+        cudaMalloc((char**) &d_len_array, NUM_LINES * sizeof(int));
 
         int* d_offset_array;
-        cudaMalloc((int**) &d_offset_array, line_count * sizeof(int));
+        cudaMalloc((char**) &d_offset_array, NUM_LINES * sizeof(int));
 
-        int* d_num_commas;
-        cudaMalloc((int**) &d_num_commas, sizeof(int));
-
-        int temp = 0;
         cudaMemcpy(d_buffer, buffer, BUFFER_SIZE * sizeof(char), cudaMemcpyHostToDevice);     
-        cudaMemcpy(d_len_array, len_array, line_count * sizeof(int), cudaMemcpyHostToDevice);     
-        cudaMemcpy(d_offset_array, offset_array, line_count * sizeof(int), cudaMemcpyHostToDevice);    
-        cudaMemcpy(d_num_commas, &temp, sizeof(int), cudaMemcpyHostToDevice);
+        cudaMemcpy(d_len_array, len_array, NUM_LINES * sizeof(int), cudaMemcpyHostToDevice);     
+        cudaMemcpy(d_offset_array, offset_array, NUM_LINES * sizeof(int), cudaMemcpyHostToDevice);     
 
         dim3 dimGrid(NUM_LINES,1,1);
         dim3 dimBlock(NUM_THREADS,1,1);
-
-        merge_scan<<<dimGrid, dimBlock>>>(d_buffer, d_len_array, d_offset_array, d_output_array, d_num_commas,line_count);
-
+        merge_scan<<<dimGrid, dimBlock>>>(line_count, d_buffer, d_len_array, d_offset_array, d_output_array);
 
         cudaMemcpy(h_output_array, d_output_array, BUFFER_SIZE * sizeof(int), cudaMemcpyDeviceToHost);
-
-         for(int i = 0; i < line_count; i++) {
-            for(int j = 0; j < NUM_COMMAS; j++) {
-                if(h_output_array[i * NUM_COMMAS +  j] != 0)
-                    cout << h_output_array[i * NUM_COMMAS +  j] << " "; 
-            }
-            cout << endl;
-         }  
         
+        // for(int j = 0; j < line_count; j++) {
+        //     for(int i = 0; i < len_array[j]; i++) {
+        //        if(h_output_array[i + j * len_array[j]] == 1) 
+        //            cout << i << " "; 
+        //     }
+        //     cout << endl;
+        // }
 
         clear_array<<<dimGrid, dimBlock>>>(d_output_array, BUFFER_SIZE);
 
@@ -323,7 +239,6 @@ int main() {
         cudaFree(d_buffer);
         cudaFree(d_len_array);
         cudaFree(d_offset_array);
-        cudaFree(d_num_commas);
 
         // delete temporary buffers
         delete [] buffer;
@@ -335,5 +250,4 @@ int main() {
 
     return 0;
 }
-
 
