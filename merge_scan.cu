@@ -13,10 +13,10 @@
 
 using namespace std;
 
-#define NUM_STATES 3
+#define NUM_STATES 4
 #define NUM_CHARS  256
-#define NUM_THREADS 612
-#define NUM_LINES 30
+#define NUM_THREADS 128
+#define NUM_LINES 2
 #define INPUT_FILE "./input_file.txt"
 
 typedef std::chrono::high_resolution_clock Clock;
@@ -42,6 +42,10 @@ struct __align__(4) state_array{
 
 typedef state_array<NUM_STATES> SA;
 
+__device__ void SA_copy(SA & a, SA &b) {
+    for(int i = 0; i < NUM_STATES; i ++) 
+        a.v[i] = b.v[i];
+}
 
 struct SA_op {
     __device__ SA operator()(SA &a, SA &b){
@@ -59,37 +63,59 @@ void merge_scan (int num_chars, char* line, int* len_array, int array_len, int* 
 
 
     typedef cub::BlockScan<SA, NUM_THREADS> BlockScan;
-  //  typedef cub::BlockScan<int, NUM_THREADS> BlockScan2;
+    typedef cub::BlockScan<int, NUM_THREADS> BlockScan2;
 
     __shared__ typename BlockScan::TempStorage temp_storage;
-   // __shared__ typename BlockScan2::TempStorage temp_storage2;
+    __shared__ typename BlockScan2::TempStorage temp_storage2;
+    __shared__ SA prev_value;
+    __shared__ int prev_sum;
+
 
     int block_num = blockIdx.x;
-
     int len = len_array[blockIdx.x];
+
+    SA a = SA();
+    SA_copy(prev_value , a);
+
+    prev_sum = 0;
+
 
     for(int loop = threadIdx.x; loop < len; loop += NUM_THREADS) {
         if(loop < len) {
 
-            SA a = SA();
-        	for(int i = 0; i < NUM_STATES; i++){
-                char c = line[loop + block_num * array_len];
-                int x = d_D[(int)(i* NUM_CHARS + c)];
-        	    a.set_SA(i, x);
-        	}
+            //SA a = SA();
+            if(loop % NUM_THREADS == 0) {
+                SA_copy(a, prev_value);
+            }
+
+            else {   
+                for(int i = 0; i < NUM_STATES; i++){
+                    char c = line[loop + block_num * array_len];
+                    int x = d_D[(int)(i* NUM_CHARS + c)];
+                    a.set_SA(i, x);
+                }
+            }
 
             BlockScan(temp_storage).InclusiveScan(a, a, SA_op());
+            __syncthreads();
+
+
 
             char c = line[loop + block_num * array_len];
             int state = a.v[0];
-            output_array[loop + block_num * array_len ] = (int) d_E[(int) (NUM_CHARS * state + c)];
-            /*
             int start = (int) d_E[(int) (NUM_CHARS * state + c)];
             int end;
             BlockScan2(temp_storage2).InclusiveSum(start, end);
-            output_array[idx - 1] = end;
-            */
+            if(start == 1) 
+                output_array[end + block_num * array_len - 1 + prev_sum] = loop;
+
+            if((loop + 1) % NUM_THREADS == 0) {
+                SA_copy(prev_value , a);
+                prev_sum = end;
+            }   
         }
+        __syncthreads();
+
     }
 
 }
@@ -138,9 +164,12 @@ void Dtable_generate()
         add_default_transition(i ,i);
     
     add_default_transition(2 , 1);
+    add_default_transition(3 , 0);
+
     add_transition(0, '[', 1);
     add_transition(1, '\\', 2);
     add_transition(1, ']', 0);
+    add_transition(0, '\\', 3);
 }
 
 void Etable_generate() 
@@ -228,14 +257,13 @@ int main() {
             
             for(int j = 0; j < NUM_LINES; j++) {
                 for(int i = 0; i < array_len; i++) {
-                   if(h_output_array[i + j * array_len] == 1) 
-                       cout << i << " "; 
+                    cout << h_output_array[i + j * array_len] << " ";
+
                 }
                 cout << endl;
+                
             }
-    
             clear_array<<<dimGrid, dimBlock>>>(d_output_array, array_len * NUM_LINES);
-
             count = 0;
         }
     }
@@ -253,14 +281,13 @@ int main() {
         cudaDeviceSynchronize();
         cudaMemcpy(h_output_array, d_output_array, array_len  * sizeof(int) * NUM_LINES, cudaMemcpyDeviceToHost);
         
-        for(int j = 0; j < count; j++) {
-            for(int i = 0; i < array_len; i++) {
-               if(h_output_array[i + j * array_len] == 1) 
-                   cout << i << " "; 
-            }
-            cout << endl;
-        }
+        for(int j = 0; j < NUM_LINES; j++) {
+                for(int i = 0; i < array_len; i++) {
+                    cout << h_output_array[i + j * array_len] << " ";
 
+                }
+                cout << endl;   
+        }
     }
 
     //end timer
