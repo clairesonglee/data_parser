@@ -441,24 +441,32 @@ int main() {
         for(int i = 0; i < 3; i++){
 
             start_idx = temp_array[i]; // start of polyline
-            cout<<"startidx: "<<start_idx<<endl;
 
             input_line_idx = i; 
-            cout<<"input_line_idx: "<<input_line_idx<<endl;
 
             end_idx = len_array[input_line_idx] + offset_idx; // end of line 
-            cout<<"end_idx: "<<end_idx<<endl;
 
             polyline_len = end_idx - start_idx;
-            cout<<"polyline_len: "<<polyline_len<<endl;
             // copy spliced string from buffer to string 
             char str[polyline_len];
-            //strncpy(dest, src + beginIndex, endIndex - beginIndex);
             strncpy(str, buffer + start_idx, polyline_len);
-            cout<<"str: "<<str<<endl;
+            cout<<"Taxi "<<i<<endl;
+
+            int len;
+            int str_idx = 0;
+            for(int j = 0; j < strlen(str); j++){
+                if(str[j] == ',' && str[j-1] == ']'){
+                    len = (j-1) - str_idx;
+                    printf("%.*s\n", len-1, str + str_idx+2);
+                    //std::string splice = str.substr (str_idx,j-1);
+                    //cout<<splice<<endl;
+                    str_idx = j;
+                }
+                    
+            }
+       // "think"
 
             offset_idx += end_idx;
-            cout<<"offset_idx: "<<offset_idx<<endl;
         }
 
         //clear_array<<<dimGrid, dimBlock>>>(d_output_array, BUFFER_SIZE);
