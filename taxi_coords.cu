@@ -450,7 +450,7 @@ int main() {
             // copy spliced string from buffer to string 
             char str[polyline_len];
             strncpy(str, buffer + start_idx, polyline_len);
-            cout<<"Taxi "<<i<<endl;
+            cout<<"Taxi "<<i+1<<endl;
 
             int len;
             int str_idx = 0;
