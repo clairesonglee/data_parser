@@ -18,7 +18,9 @@ using namespace std;
 
 #define BUFFER_SIZE 25000
 #define NUM_COMMAS 10 
-#define INPUT_FILE "./input_file.txt"
+// #define INPUT_FILE "./Porto_taxi_data_test_partial_trajectories_orig.csv"
+// #define INPUT_FILE "./input_file.txt"
+#define INPUT_FILE "./taxi_input.txt"
 
 typedef std::chrono::high_resolution_clock Clock;
 
@@ -247,9 +249,9 @@ void Dtable_generate()
     add_default_transition(2 , 1);
     add_default_transition(3 , 0);
 
-    add_transition(0, '[', 1);
+    add_transition(0, '"', 1);
     add_transition(1, '\\', 2);
-    add_transition(1, ']', 0);
+    add_transition(1, '"', 0);
     add_transition(0, '\\', 3);
 }
 
@@ -371,9 +373,6 @@ int main() {
         cudaMalloc((int**) &d_temp_base, sizeof(int));
 
 
-
-
-
         int temp = 0;
 
         auto t1 = Clock::now();
@@ -417,7 +416,7 @@ int main() {
         cout << "Device to Host:" << std::chrono::duration_cast<std::chrono::microseconds>(t6 - t5).count() << " microseconds" << endl;
 
 
-        
+/*        
          for(int i = 0; i < line_count; i++) {
             int len = comma_len_array[i];
             int off = comma_offset_array[i];
@@ -426,7 +425,41 @@ int main() {
             }
             cout << endl;
         }
-        
+*/       
+        /*----------------------------------------------------taxi code start--------------------------------------------*/
+
+        int temp_array[3] = {47,475,1700};
+
+        int offset_idx = 0; 
+        int start_idx = 0;
+        int input_line_idx = 0; 
+        int end_idx = 0; 
+        int polyline_len = 0; 
+
+        // increments by 8 to find each polyline 
+        // for(int i = 0; i < 20; i+=8){
+        for(int i = 0; i < 3; i++){
+
+            start_idx = temp_array[i]; // start of polyline
+            cout<<"startidx: "<<start_idx<<endl;
+
+            input_line_idx = i; 
+            cout<<"input_line_idx: "<<input_line_idx<<endl;
+
+            end_idx = len_array[input_line_idx] + offset_idx; // end of line 
+            cout<<"end_idx: "<<end_idx<<endl;
+
+            polyline_len = end_idx - start_idx;
+            cout<<"polyline_len: "<<polyline_len<<endl;
+            // copy spliced string from buffer to string 
+            char str[polyline_len];
+            //strncpy(dest, src + beginIndex, endIndex - beginIndex);
+            strncpy(str, buffer + start_idx, polyline_len);
+            cout<<"str: "<<str<<endl;
+
+            offset_idx += end_idx;
+            cout<<"offset_idx: "<<offset_idx<<endl;
+        }
 
         //clear_array<<<dimGrid, dimBlock>>>(d_output_array, BUFFER_SIZE);
 
