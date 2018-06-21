@@ -12,12 +12,12 @@ using namespace std;
 
 #define NUM_STATES 4
 #define NUM_CHARS  256
-#define NUM_THREADS 128
-#define NUM_LINES 200
+#define NUM_THREADS 256
+#define NUM_LINES 322
 #define NUM_BLOCKS 30
 
-#define BUFFER_SIZE 25000
-#define NUM_COMMAS 10 
+#define BUFFER_SIZE 250000
+#define NUM_COMMAS 50
 #define INPUT_FILE "./input_file.txt"
 
 typedef std::chrono::high_resolution_clock Clock;
@@ -120,8 +120,8 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
                  int* index, int total_lines, int* num_commas_array){
 
 
-    typedef cub::BlockScan<SA, NUM_THREADS> BlockScan; // change name
-    typedef cub::BlockScan<int, NUM_THREADS> BlockScan2; //
+    typedef cub::BlockScan<SA, NUM_THREADS + 1> BlockScan; // change name
+    typedef cub::BlockScan<int, NUM_THREADS + 1> BlockScan2; //
 
     __shared__ typename BlockScan::TempStorage temp_storage;
     __shared__ typename BlockScan2::TempStorage temp_storage2;
@@ -132,12 +132,15 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
     int len, offset;
     int block_num;
 
-    if(threadIdx.x == 0) 
+    if(threadIdx.x == 0) {
         line_num = atomicInc((unsigned int*) &index[0], INT_MAX);
+    //   printf("block_num: %d\n", line_num);
+    }
     __syncthreads();
     block_num =  line_num;
 
-    while(block_num < total_lines) {
+    while(block_num < total_lines ) {
+
         len = len_array[block_num];
         offset = offset_array[block_num];
 
@@ -146,11 +149,16 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
         SA_copy(prev_value , a);
 
         prev_sum = 0;
+        int loop;
 
         //If the string is longer than NUM_THREADS
-        for(int loop = threadIdx.x; loop < len; loop += NUM_THREADS) {
+        for(int ph = 0; ph < (int)(len / (int)NUM_THREADS) + 1; ph++) {
+
+            loop = threadIdx.x + ((int)NUM_THREADS) * ph;
+            char c = 0;
+            //__syncthreads();
             if(loop < len) {
-                char c = line[loop + offset];
+                c = line[loop + offset];
 
                 //Check that it has to fetch the data from the previous loop
                 if(loop % NUM_THREADS == 0) {
@@ -163,29 +171,38 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
                         a.set_SA(i, x);
                     }
                 }
-
-                BlockScan(temp_storage).InclusiveScan(a, a, SA_op());
-                __syncthreads();
-
-                int state = a.v[0];
-                int start = (int) d_E[(int) (NUM_CHARS * state + c)];
-                int end;
-                BlockScan2(temp_storage2).InclusiveSum(start, end);
-                if(start == 1) 
-                    output_array[end - 1 + block_num * NUM_COMMAS + prev_sum] = loop;
-
-                //save the values for the next loop
-                if((loop + 1) % NUM_THREADS == 0) {
-                    SA_copy(prev_value , a);
-                    prev_sum = end;
-                }
-                        //save the number of commas in the current line
-                if(loop == len - 1) 
-                    num_commas_array[block_num] = end;
-                
-   
             }
             __syncthreads();
+
+            BlockScan(temp_storage).InclusiveScan(a, a, SA_op());
+            __syncthreads();
+
+            int state = a.v[0];
+            int start = (int) d_E[(int) (NUM_CHARS * state + c)];
+            int end;
+            BlockScan2(temp_storage2).InclusiveSum(start, end);
+            if(start == 1 && loop < len) {
+                output_array[end - 1 + block_num * NUM_COMMAS + prev_sum] = loop;
+                if(block_num == 68) {
+                    printf("loop: %d, end: %d, prev_sum: %d\n", loop, end, prev_sum);
+                }
+            }
+
+            //save the values for the next loop
+            if((loop + 1) % NUM_THREADS == 0) {
+                SA_copy(prev_value , a);
+                prev_sum += end;
+             //   printf("loop: %d, block_num: %d, blcok_ID: %d, prev_sum: %d\n", loop, block_num, blockIdx.x, prev_sum);
+            }
+            __syncthreads();
+                    //save the number of commas in the current line
+            if(loop == len - 1) {
+                num_commas_array[block_num] = prev_sum;
+               // printf("block_num: %d, num_commas: %d\n", block_num, end);
+            }
+
+                __syncthreads();
+
 
         }
 
@@ -196,6 +213,20 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
          __syncthreads();
         block_num =  line_num;
     }
+
+
+/*
+
+    if((threadIdx.x + blockIdx.x)== 0) {
+        for(int i = 0; i < total_lines; i ++) {
+            for(int j = 0; j < NUM_COMMAS; j++) {
+                printf("%d ", output_array[i * NUM_COMMAS + j]);
+
+            }
+            printf("\n");
+        }
+    }
+    */
 
 
 
@@ -394,7 +425,7 @@ int main() {
 
         auto t3 = Clock::now();
 
-        merge_scan<<<dimGrid, dimBlock>>>(d_buffer, d_len_array, d_offset_array, d_output_array, d_stack, line_count, d_num_commas);
+       merge_scan<<<dimGrid, dimBlock>>>(d_buffer, d_len_array, d_offset_array, d_output_array, d_stack, line_count, d_num_commas);
 
         cudaDeviceSynchronize();
 
@@ -404,28 +435,35 @@ int main() {
 
         remove_empty_elements<<<dimGrid, dimBlock>>> (d_output_array, d_num_commas, line_count, d_stack, d_temp_base, d_comma_offset_array, d_final_array);
 
+        cudaDeviceSynchronize();
 
         auto t4 = Clock::now();
         cout << "data trans:" << std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count() << " microseconds" << endl;
 
 
         auto t5 = Clock::now();
-        cudaMemcpy(h_output_array, d_final_array, BUFFER_SIZE * sizeof(int), cudaMemcpyDeviceToHost);
+        //change the size later
+        cudaMemcpy(h_output_array, d_final_array, line_count * NUM_COMMAS * sizeof(int), cudaMemcpyDeviceToHost);
         cudaMemcpy(comma_len_array, d_num_commas, line_count * sizeof(int), cudaMemcpyDeviceToHost);
         cudaMemcpy(comma_offset_array, d_comma_offset_array, line_count * sizeof(int), cudaMemcpyDeviceToHost);
         auto t6 = Clock::now();
         cout << "Device to Host:" << std::chrono::duration_cast<std::chrono::microseconds>(t6 - t5).count() << " microseconds" << endl;
 
-
+        
         
          for(int i = 0; i < line_count; i++) {
             int len = comma_len_array[i];
+           
             int off = comma_offset_array[i];
             for(int j = 0; j < len; j++) {
                 cout << h_output_array[off + j] << " ";
             }
+             // cout << len;
             cout << endl;
         }
+        
+        
+
         
 
         //clear_array<<<dimGrid, dimBlock>>>(d_output_array, BUFFER_SIZE);
