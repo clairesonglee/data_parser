@@ -183,9 +183,6 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
             BlockScan2(temp_storage2).InclusiveSum(start, end);
             if(start == 1 && loop < len) {
                 output_array[end - 1 + block_num * NUM_COMMAS + prev_sum] = loop;
-                if(block_num == 68) {
-                    printf("loop: %d, end: %d, prev_sum: %d\n", loop, end, prev_sum);
-                }
             }
 
             //save the values for the next loop
@@ -196,38 +193,16 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
             }
             __syncthreads();
                     //save the number of commas in the current line
-            if(loop == len - 1) {
-                num_commas_array[block_num] = prev_sum;
-               // printf("block_num: %d, num_commas: %d\n", block_num, end);
-            }
-
-                __syncthreads();
-
-
         }
 
-
+        if(loop == len - 1) 
+            num_commas_array[block_num] = prev_sum;
 
         if(threadIdx.x == 0) 
             line_num = atomicInc((unsigned int*) &index[0], INT_MAX);
          __syncthreads();
         block_num =  line_num;
     }
-
-
-/*
-
-    if((threadIdx.x + blockIdx.x)== 0) {
-        for(int i = 0; i < total_lines; i ++) {
-            for(int j = 0; j < NUM_COMMAS; j++) {
-                printf("%d ", output_array[i * NUM_COMMAS + j]);
-
-            }
-            printf("\n");
-        }
-    }
-    */
-
 
 
 }
