@@ -69,7 +69,7 @@ void remove_empty_elements (int* input, int* len_array, int total_lines, int* in
 
 
     if(threadIdx.x == 0) 
-        line_num = atomicInc((unsigned int*) &index[0], INT_MAX);
+        line_num = atomicInc((unsigned int*) index, INT_MAX);
     __syncthreads();
     block_num =  line_num;
 
@@ -81,7 +81,7 @@ void remove_empty_elements (int* input, int* len_array, int total_lines, int* in
 
 
         if(threadIdx.x == 0)
-            base = atomicAdd(&temp_base[0], len);
+            base = atomicAdd(temp_base, len);
         __syncthreads();
         
 
@@ -94,7 +94,7 @@ void remove_empty_elements (int* input, int* len_array, int total_lines, int* in
         }
 
         if(threadIdx.x == 0) 
-            line_num = atomicInc((unsigned int*) &index[0], INT_MAX);
+            line_num = atomicInc((unsigned int*) index, INT_MAX);
          __syncthreads();
         block_num =  line_num;
 
@@ -114,8 +114,8 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
                  int* index, int total_lines, int* num_commas_array){
 
 
-    typedef cub::BlockScan<SA, NUM_THREADS + 1> BlockScan; // change name
-    typedef cub::BlockScan<int, NUM_THREADS + 1> BlockScan2; //
+    typedef cub::BlockScan<SA, NUM_THREADS > BlockScan; // change name
+    typedef cub::BlockScan<int, NUM_THREADS> BlockScan2; //
 
     __shared__ typename BlockScan::TempStorage temp_storage;
     __shared__ typename BlockScan2::TempStorage temp_storage2;
@@ -127,7 +127,7 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
     int block_num;
 
     if(threadIdx.x == 0) {
-        line_num = atomicInc((unsigned int*) &index[0], INT_MAX);
+        line_num = atomicInc((unsigned int*) index, INT_MAX);
     //   printf("block_num: %d\n", line_num);
     }
     __syncthreads();
@@ -155,8 +155,11 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
                 c = line[loop + offset];
 
                 //Check that it has to fetch the data from the previous loop
-                if(threadIdx.x == NUM_THREADS) {
-                	a = prev_value;
+                if(threadIdx.x == NUM_THREADS ) {
+                	for(int i = 0; i < NUM_STATES; i++){
+                        int x = d_D[(int)(prev_value.v[i] * NUM_CHARS + c)];
+                        a.set_SA(i, x);
+                    }
                 }
 
                 else {   
@@ -194,7 +197,7 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
 
         //to get the next line
         if(threadIdx.x == 0) 
-            line_num = atomicInc((unsigned int*) &index[0], INT_MAX);
+            line_num = atomicInc((unsigned int*) index, INT_MAX);
          __syncthreads();
         block_num =  line_num;
     }
