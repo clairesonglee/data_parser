@@ -13,7 +13,8 @@ using namespace std;
 #define NUM_STATES 4
 #define NUM_CHARS  256
 #define NUM_THREADS 128
-#define NUM_LINES 5
+#define NUM_LINES 100
+#define NUM_BLOCKS 30
 
 #define BUFFER_SIZE 2500
 #define NUM_COMMAS 10 
@@ -39,7 +40,7 @@ struct __align__(4) state_array{
     }
 
     __device__ void set_SA(int index, int x) {
-	   v[index] = x;
+       v[index] = x;
     }
 
 };
@@ -296,7 +297,7 @@ int main() {
         cudaMemcpy(d_offset_array, offset_array, line_count * sizeof(int), cudaMemcpyHostToDevice);    
         cudaMemcpy(d_num_commas, &temp, sizeof(int), cudaMemcpyHostToDevice);
 
-        dim3 dimGrid(NUM_LINES,1,1);
+        dim3 dimGrid(NUM_BLOCKS,1,1);
         dim3 dimBlock(NUM_THREADS,1,1);
 
         merge_scan<<<dimGrid, dimBlock>>>(d_buffer, d_len_array, d_offset_array, d_output_array, d_num_commas,line_count);
@@ -313,7 +314,7 @@ int main() {
          }  
         
 
-        clear_array<<<dimGrid, dimBlock>>>(d_output_array, BUFFER_SIZE);
+        //clear_array<<<dimGrid, dimBlock>>>(d_output_array, BUFFER_SIZE);
 
         // close filestream
         is.close();
@@ -329,8 +330,9 @@ int main() {
         delete [] buffer;
         delete [] len_array;
         delete [] offset_array;
-        delete [] h_output_array;
     }
+    delete [] h_output_array;
+
 
 
     return 0;
