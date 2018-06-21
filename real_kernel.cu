@@ -47,12 +47,6 @@ struct __align__(4) state_array{
 
 typedef state_array<NUM_STATES> SA;
 
-//a = b
-__device__ void SA_copy(SA &a, SA &b) {
-    for(int i = 0; i < NUM_STATES; i ++) 
-        a.v[i] = b.v[i];
-}
-
 struct SA_op {
     __device__ SA operator()(SA &a, SA &b){
         SA c;
@@ -146,7 +140,7 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
 
         //initialize starting values
         SA a = SA();
-        SA_copy(prev_value , a);
+        prev_value = a;
 
         prev_sum = 0;
         int loop;
@@ -162,7 +156,7 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
 
                 //Check that it has to fetch the data from the previous loop
                 if(loop % NUM_THREADS == 0) {
-                    SA_copy(a, prev_value);
+                	a = prev_value;
                 }
 
                 else {   
@@ -187,12 +181,12 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
 
             //save the values for the next loop
             if((loop + 1) % NUM_THREADS == 0) {
-                SA_copy(prev_value , a);
+            	prev_value = a;
                 prev_sum += end;
              //   printf("loop: %d, block_num: %d, blcok_ID: %d, prev_sum: %d\n", loop, block_num, blockIdx.x, prev_sum);
             }
             __syncthreads();
-                    //save the number of commas in the current line
+                    
         }
 
         if(loop == len - 1) 
