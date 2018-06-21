@@ -146,16 +146,16 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
         int loop;
 
         //If the string is longer than NUM_THREADS
-        for(int ph = 0; ph < (int)(len / (int)NUM_THREADS) + 1; ph++) {
+        for(int ph = 0; ph < len; ph += NUM_THREADS) {
 
-            loop = threadIdx.x + ((int)NUM_THREADS) * ph;
+            loop = threadIdx.x + ph;
             char c = 0;
             //__syncthreads();
             if(loop < len) {
                 c = line[loop + offset];
 
                 //Check that it has to fetch the data from the previous loop
-                if(loop % NUM_THREADS == 0) {
+                if(threadIdx.x == NUM_THREADS) {
                 	a = prev_value;
                 }
 
@@ -180,7 +180,7 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
             }
 
             //save the values for the next loop
-            if((loop + 1) % NUM_THREADS == 0) {
+            if(threadIdx.x + 1 == NUM_THREADS) {
             	prev_value = a;
                 prev_sum += end;
              //   printf("loop: %d, block_num: %d, blcok_ID: %d, prev_sum: %d\n", loop, block_num, blockIdx.x, prev_sum);
@@ -192,6 +192,7 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
         if(loop == len - 1) 
             num_commas_array[block_num] = prev_sum;
 
+        //to get the next line
         if(threadIdx.x == 0) 
             line_num = atomicInc((unsigned int*) &index[0], INT_MAX);
          __syncthreads();
