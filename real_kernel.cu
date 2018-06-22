@@ -123,12 +123,15 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
     __shared__ int prev_sum;
     __shared__ int line_num;
 
+    SA temp_prev_val;
+
     int len, offset;
     int block_num;
 
+    int start_state;
+
     if(threadIdx.x == 0) {
         line_num = atomicInc((unsigned int*) index, INT_MAX);
-    //   printf("block_num: %d\n", line_num);
     }
     __syncthreads();
     block_num =  line_num;
@@ -141,6 +144,7 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
         //initialize starting values
         SA a = SA();
         prev_value = a;
+        SA ini = SA();
 
         prev_sum = 0;
         int loop;
@@ -154,39 +158,32 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
             if(loop < len) {
                 c = line[loop + offset];
 
-                //Check that it has to fetch the data from the previous loop
-                if(threadIdx.x == NUM_THREADS ) {
-                	for(int i = 0; i < NUM_STATES; i++){
-                        int x = d_D[(int)(prev_value.v[i] * NUM_CHARS + c)];
-                        a.set_SA(i, x);
-                    }
-                }
-
-                else {   
-                    for(int i = 0; i < NUM_STATES; i++){
-                        int x = d_D[(int)(i* NUM_CHARS + c)];
-                        a.set_SA(i, x);
-                    }
-                }
+	            for(int i = 0; i < NUM_STATES; i++){
+	                int x = d_D[(int)(i* NUM_CHARS + c)];
+	                a.set_SA(i, x);
+	            }
             }
             __syncthreads();
 
-            BlockScan(temp_storage).InclusiveScan(a, a, SA_op());
+            BlockScan(temp_storage).ExclusiveScan(a, a, prev_value, SA_op(), temp_prev_val);
             __syncthreads();
-
-            int state = a.v[0];
+           
+            start_state = prev_value.v[0];
+            int state = a.v[start_state];
             int start = (int) d_E[(int) (NUM_CHARS * state + c)];
             int end;
-            BlockScan2(temp_storage2).InclusiveSum(start, end);
+            BlockScan2(temp_storage2).ExclusiveSum(start, end);
             if(start == 1 && loop < len) {
-                output_array[end - 1 + block_num * NUM_COMMAS + prev_sum] = loop;
+                output_array[end + block_num * NUM_COMMAS + prev_sum] = loop;
+            }
+
+            if(threadIdx.x == 0) {
+            	prev_value = temp_prev_val;
             }
 
             //save the values for the next loop
             if(threadIdx.x + 1 == NUM_THREADS) {
-            	prev_value = a;
                 prev_sum += end;
-             //   printf("loop: %d, block_num: %d, blcok_ID: %d, prev_sum: %d\n", loop, block_num, blockIdx.x, prev_sum);
             }
             __syncthreads();
                     
