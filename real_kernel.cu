@@ -16,9 +16,9 @@ using namespace std;
 #define NUM_LINES 322
 #define NUM_BLOCKS 30
 
-#define BUFFER_SIZE 250000
-#define NUM_COMMAS 50
-#define INPUT_FILE "./input_file.txt"
+#define BUFFER_SIZE 25000000
+#define NUM_COMMAS 500
+#define INPUT_FILE "./input_file.csv"
 
 typedef std::chrono::high_resolution_clock Clock;
 
@@ -26,8 +26,6 @@ typedef std::chrono::high_resolution_clock Clock;
 __constant__ int     d_D[NUM_STATES * NUM_CHARS];
 //Emission table for GPU function
 __constant__ uint8_t d_E[NUM_STATES * NUM_CHARS];
-
-
 
 
 template <int states>
@@ -103,10 +101,7 @@ void remove_empty_elements (int* input, int* len_array, int total_lines, int* in
     }
 
 
-
-
 }
-
 
 
 __global__
@@ -124,11 +119,13 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
     __shared__ int line_num;
 
     SA temp_prev_val;
+    int temp_prev_sum;
 
     int len, offset;
     int block_num;
 
     int start_state;
+
 
     if(threadIdx.x == 0) {
         line_num = atomicInc((unsigned int*) index, INT_MAX);
@@ -144,9 +141,10 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
         //initialize starting values
         SA a = SA();
         prev_value = a;
-        SA ini = SA();
+        temp_prev_val = SA();
 
         prev_sum = 0;
+        temp_prev_sum = 0;
         int loop;
 
         //If the string is longer than NUM_THREADS
@@ -156,8 +154,10 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
             char c = 0;
             //__syncthreads();
             if(loop < len) {
-                c = line[loop + offset];
-
+            	//if(loop != 0)
+               		 c = line[loop + offset ];
+               	//else
+               	//	c = 0;
 	            for(int i = 0; i < NUM_STATES; i++){
 	                int x = d_D[(int)(i* NUM_CHARS + c)];
 	                a.set_SA(i, x);
@@ -172,19 +172,16 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
             int state = a.v[start_state];
             int start = (int) d_E[(int) (NUM_CHARS * state + c)];
             int end;
-            BlockScan2(temp_storage2).ExclusiveSum(start, end);
+            BlockScan2(temp_storage2).ExclusiveSum(start, end, temp_prev_sum);
             if(start == 1 && loop < len) {
-                output_array[end + block_num * NUM_COMMAS + prev_sum] = loop;
+                output_array[end + block_num * NUM_COMMAS + prev_sum] = loop /*- (ph + 1)*/;
             }
 
             if(threadIdx.x == 0) {
             	prev_value = temp_prev_val;
+            	prev_sum += temp_prev_sum;
             }
 
-            //save the values for the next loop
-            if(threadIdx.x + 1 == NUM_THREADS) {
-                prev_sum += end;
-            }
             __syncthreads();
                     
         }
@@ -261,23 +258,6 @@ void Etable_generate()
     
     add_emission(0, ',', 1);
 }
-
-int max_length()
-{
-    std::ifstream is(INPUT_FILE);   // open file
-    string line;
-    int length = 0; 
-
-    while (getline(is, line)){
-        if(length < line.length())
-            length = line.length();
-    }
-    is.close();
-    
-    return length; 
-}
-
-
 
 int main() {
 
