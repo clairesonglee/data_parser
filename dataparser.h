@@ -402,22 +402,16 @@ void parse_data(string input){
 
         
         
-         for(int i = 0; i < line_count; i++) {
-            int len = comma_len_array[i];
+        //  for(int i = 0; i < line_count; i++) {
+        //     int len = comma_len_array[i];
            
-            int off = comma_offset_array[i];
-            for(int j = 0; j < len; j++) {
-                cout << h_output_array[off + j] << " ";
-            }
-             // cout << len;
-            cout << endl;
-        }
-        
-        
-
-        
-
-        //clear_array<<<dimGrid, dimBlock>>>(d_output_array, BUFFER_SIZE);
+        //     int off = comma_offset_array[i];
+        //     for(int j = 0; j < len; j++) {
+        //         cout << h_output_array[off + j] << " ";
+        //     }
+        //      // cout << len;
+        //     cout << endl;
+        // }
 
         // close filestream
         is.close();
