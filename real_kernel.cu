@@ -18,7 +18,7 @@ using namespace std;
 
 #define BUFFER_SIZE 25000000
 #define NUM_COMMAS 500
-#define INPUT_FILE "./input_file.csv"
+#define INPUT_FILE "./input_file.txt"
 
 typedef std::chrono::high_resolution_clock Clock;
 
@@ -106,7 +106,7 @@ void remove_empty_elements (int* input, int* len_array, int total_lines, int* in
 
 __global__
 void merge_scan (char* line, int* len_array, int* offset_array, int* output_array, 
-                 int* index, int total_lines, int* num_commas_array){
+                 int* index, int total_lines, int* num_commas_array, SA* d_SA_Table){
 
 
     typedef cub::BlockScan<SA, NUM_THREADS > BlockScan; // change name
@@ -154,14 +154,17 @@ void merge_scan (char* line, int* len_array, int* offset_array, int* output_arra
             char c = 0;
             //__syncthreads();
             if(loop < len) {
-            	//if(loop != 0)
-               		 c = line[loop + offset ];
-               	//else
-               	//	c = 0;
+                
+                c = line[loop + offset ];
+                /*
 	            for(int i = 0; i < NUM_STATES; i++){
 	                int x = d_D[(int)(i* NUM_CHARS + c)];
 	                a.set_SA(i, x);
 	            }
+	            */
+	            a = d_SA_Table[c];
+
+
             }
             __syncthreads();
 
@@ -214,6 +217,7 @@ void clear_array (int* input_array, int len) {
 
 int     D[NUM_STATES][NUM_CHARS];
 uint8_t E[NUM_STATES][NUM_CHARS];
+SA 		SA_Table[NUM_CHARS];
 
 void add_transition (int state, uint8_t input, int next_state) 
 {
@@ -236,6 +240,15 @@ void add_default_emission(int state, uint8_t value)
     for (int i = 0; i < NUM_CHARS; i++) 
         E[state][i] = value;
 }
+
+void SA_generate () {
+	for (int i = 0; i < NUM_CHARS; i++) {
+		for(int j = 0; j < NUM_STATES; j++) {
+			(SA_Table[i]).v[j] = D[j][i];
+		}
+	}
+}
+
 
 void Dtable_generate() 
 {
@@ -263,9 +276,16 @@ int main() {
 
     Dtable_generate();
     Etable_generate();
+    SA_generate();
+
+    SA* d_SA_Table;
+    cudaMalloc((SA**) &d_SA_Table, NUM_CHARS * sizeof(SA));
+
 
     cudaMemcpyToSymbol(d_D, D, NUM_STATES * NUM_CHARS * sizeof(int));
     cudaMemcpyToSymbol(d_E, E, NUM_STATES * NUM_CHARS * sizeof(uint8_t));
+    cudaMemcpy(d_SA_Table, SA_Table, NUM_CHARS * sizeof(SA), cudaMemcpyHostToDevice);
+
 
     int* h_output_array = new int[BUFFER_SIZE];
 
@@ -375,7 +395,7 @@ int main() {
 
         auto t3 = Clock::now();
 
-       merge_scan<<<dimGrid, dimBlock>>>(d_buffer, d_len_array, d_offset_array, d_output_array, d_stack, line_count, d_num_commas);
+       merge_scan<<<dimGrid, dimBlock>>>(d_buffer, d_len_array, d_offset_array, d_output_array, d_stack, line_count, d_num_commas, d_SA_Table);
 
         cudaDeviceSynchronize();
 
@@ -411,7 +431,6 @@ int main() {
              // cout << len;
             cout << endl;
         }
-        
         
 
         
