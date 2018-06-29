@@ -575,19 +575,16 @@ int main() {
             int comma_off2 = polyline_comma_offset_array[i];
             for(int j = 0; j <= num; j++) {
                 if((j != num) && (j != 0)) {
-                    cout<<"test mothafuckas1"<<endl;
 
                     printf("%.*s\n", polyline_array[comma_off2 + j] - polyline_array[j - 1 + comma_off2] - 2, buffer + polyline_array[j - 1 + comma_off2] + polyline_offset_array[i] + 2);
                 }
 
                 else if(j == 0) {
-                    cout<<"test mothafuckas2"<<endl;
 
                     printf("%.*s\n", polyline_array[j + comma_off2], buffer + polyline_offset_array[i]);
                 }
 
                 else{
-                    cout<<"test mothafuckas3"<<endl;
 
                     int comma_off = comma_offset_array[i];
                     int first_comma_idx = h_output_array[comma_off];
