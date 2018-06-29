@@ -186,8 +186,8 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
             __syncthreads();
 
             if(threadIdx.x == 0) {
-                if(prev_sum > (temp_array_size / 2)) {
-                    temp_array_size *= 2;
+                if(prev_sum > (NUM_THREADS / 2)) {
+                    temp_array_size += NUM_THREADS;
                     int* temp_ptr = (int*)malloc(sizeof(int) * temp_array_size);
                     for(int n = 0; n < prev_sum; n++) {
                         temp_ptr[n] = output_array[block_num][n];
@@ -441,11 +441,19 @@ int main() {
          for(int i = 0; i < line_count; i++) {
             int len = comma_len_array[i];
            
-            int off = comma_offset_array[i];
-            for(int j = 0; j < len; j++) {
-                cout << h_output_array[off + j] << " ";
+            if(len >= 7) {
+                int start = offset_array[i];
+                int end = offset_array[i] + len_array[i];             
+
+                int off = comma_offset_array[i]; 
+                int comma_start = h_output_array[off + 7];
+                for(int j = start + comma_start; j < end; j++) {
+                    cout << buffer[j];
+                }
+
             }
-             // cout << len;
+
+            cout << endl;
             cout << endl;
         }
         
