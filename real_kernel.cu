@@ -105,8 +105,10 @@ void remove_empty_elements (int** input, int* len_array, int total_lines, int* i
         }
 
         if(threadIdx.x == 0) {
-        	if(taxi_application)
+        	if(taxi_application){
         		output[base] = 0;
+                output_line_num[base] = block_num;
+            }
             free(input[block_num]);
             line_num = atomicInc((unsigned int*) index, INT_MAX);
         }
@@ -295,6 +297,39 @@ void polyline_coords (char* buffer, int* len_array, int* offset_array, int* comm
         }
     
 }
+
+
+__global__
+void coord_len_offset(  char* buffer, int* len_array, int* offest_array, int* line_idx_array, int* p_array, int* p_offset_array, int* p_comma_offset_array, int total_num, int garbage_char,
+                        int* c_len_array) {
+
+        int coord_num = threadIdx.x + blockIdx.x * blockDim.x;
+        int len;
+
+
+        if(coord_num < total_num) {
+            int line_num = line_idx_array[coord_num];
+            int comma_off = p_comma_offset_array[line_num + 1];
+            int cur = p_array[coord_num];
+
+            if(coord_num == comma_off - 1){
+                len = len_array[line_num] - (p_offset_array[line_num] - offest_array[line_num]) - cur - garbage_char;
+            }
+            else {
+                int next = p_array[coord_num + 1];
+                len = next - cur - garbage_char;
+            }   
+           // offset = (int)(buffer + cur + p_offset_array[line_num]);
+
+            c_len_array[coord_num] = len;
+            //printf("%d", len);
+            //c_offset_array[coord_num] = offset;
+
+        }
+
+
+}
+
 
 
 
@@ -691,6 +726,27 @@ int main() {
 
         //switch_xy setup
 
+        int* c_len_array = new int[polyline_total_num_commas];
+        int* c_offset_array = new int[polyline_total_num_commas + 1];
+
+
+        int* d_c_len_array;
+        cudaMalloc((int**) &d_c_len_array, polyline_total_num_commas * sizeof(int));
+        int* d_c_offset_array;
+        cudaMalloc((int**) &d_c_offset_array, (polyline_total_num_commas + 1) * sizeof(int));
+
+        dim3 dimGridcoord(ceil((float)polyline_total_num_commas / NUM_THREADS), 1, 1);
+        dim3 dimBlockcoord(NUM_THREADS, 1, 1);
+        coord_len_offset<<<dimGridcoord, dimBlockcoord>>>(d_buffer, d_len_array, d_offset_array, d_line_num_array, d_polyline_array, d_polyline_offset_array, d_polyline_comma_offset_array2, polyline_total_num_commas, 2, d_c_len_array);
+        cudaDeviceSynchronize();
+        cudaMemcpy(c_len_array, d_c_len_array, polyline_total_num_commas * sizeof(int), cudaMemcpyDeviceToHost);
+        
+        output_sort<<<1, NUM_THREADS>>>(d_c_len_array, polyline_total_num_commas + 1 ,d_c_offset_array);
+        cudaMemcpy(c_offset_array, d_c_offset_array, (polyline_total_num_commas + 1) * sizeof(int), cudaMemcpyDeviceToHost);
+
+        // for(int i =0; i < polyline_total_num_commas; i++) {
+        //     cout << c_offset_array[i]<<endl;
+        // }
 
 
         // char* switched_array = new char[22];
