@@ -12,13 +12,15 @@ using namespace std;
 
 #define NUM_STATES 3
 #define NUM_CHARS  256
-#define NUM_THREADS 256
+#define NUM_THREADS 512
 #define NUM_LINES 322
 #define NUM_BLOCKS 30
 
 #define BUFFER_SIZE 25000000
 #define NUM_COMMAS 500
 #define INPUT_FILE "./input_file.csv"
+//#define INPUT_FILE "./taxi_input.txt"
+
 
 typedef std::chrono::high_resolution_clock Clock;
 
@@ -274,7 +276,7 @@ void polyline_coords (char* buffer, int* len_array, int* offset_array, int* comm
             output_offset_array[loop] = start_idx; // -1 for the first index
 
             int label_start_idx = offset + 1;
-            int label_end_idx = offset + comma_array[comma_offset] - 1;
+            int label_end_idx = offset + comma_array[comma_offset + 1] - 1;
             int label_len = label_end_idx - label_start_idx;
 
             label_len_array[loop] = label_len;
@@ -745,15 +747,19 @@ int main() {
         cudaMemcpy(switched_array, d_switched_array, coord_size * sizeof(char), cudaMemcpyDeviceToHost);     
 
 
-         for(int i = 0; i < polyline_total_num_commas; i++) {
-            int c_len = c_len_array[i];
-            int c_off = c_offset_array[i];
+         // for(int i = 0; i < polyline_total_num_commas; i++) {
+         //    int c_len = c_len_array[i];
+         //    int c_off = c_offset_array[i];
 
-            for(int j =0; j < c_len; j++){
-                printf("%c",switched_array[c_off + j]);
-            }
-            cout << endl;
-         }
+         //    for(int j =0; j < c_len; j++){
+         //        printf("%c",switched_array[c_off + j]);
+         //    }
+         //    cout << endl;
+         // }
+
+        for(int i = 0; i < line_count; i ++) {
+            printf("%d\n", label_len_array[i]);
+        }
 
        
 
