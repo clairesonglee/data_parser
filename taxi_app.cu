@@ -18,8 +18,8 @@ using namespace std;
 
 #define BUFFER_SIZE 25000000
 #define NUM_COMMAS 500
-#define INPUT_FILE "./input_file.csv"
-//#define INPUT_FILE "./taxi_input.txt"
+//#define INPUT_FILE "./input_file.csv"
+#define INPUT_FILE "./taxi_input.txt"
 
 
 typedef std::chrono::high_resolution_clock Clock;
@@ -276,7 +276,7 @@ void polyline_coords (char* buffer, int* len_array, int* offset_array, int* comm
             output_offset_array[loop] = start_idx; // -1 for the first index
 
             int label_start_idx = offset + 1;
-            int label_end_idx = offset + comma_array[comma_offset + 1] - 1;
+            int label_end_idx = offset + comma_array[comma_offset] - 1;
             int label_len = label_end_idx - label_start_idx;
 
             label_len_array[loop] = label_len;
@@ -634,9 +634,9 @@ int main() {
         cudaMalloc((int**) &d_label_offset_array, line_count * sizeof(int));
 
 
-        dim3 dimGridPoly(ceil(line_count/NUM_THREADS),1,1);
+        dim3 dimGridPoly(ceil((float)line_count/NUM_THREADS),1,1);
 
-        polyline_coords<<<dimGrid, dimBlock>>>(d_buffer, d_len_array, d_offset_array, d_comma_offset_array, d_final_array, 
+        polyline_coords<<<dimGridPoly, dimBlock>>>(d_buffer, d_len_array, d_offset_array, d_comma_offset_array2, d_final_array, 
                 d_polyline_len_array, d_polyline_offset_array, d_label_len_array, d_label_offset_array, line_count);
 
         cudaDeviceSynchronize();
@@ -747,20 +747,28 @@ int main() {
         cudaMemcpy(switched_array, d_switched_array, coord_size * sizeof(char), cudaMemcpyDeviceToHost);     
 
 
-         // for(int i = 0; i < polyline_total_num_commas; i++) {
-         //    int c_len = c_len_array[i];
-         //    int c_off = c_offset_array[i];
+         for(int i = 0; i < polyline_total_num_commas; i++) {
+            int c_len = c_len_array[i];
+            int c_off = c_offset_array[i];
 
-         //    for(int j =0; j < c_len; j++){
-         //        printf("%c",switched_array[c_off + j]);
-         //    }
-         //    cout << endl;
-         // }
+            for(int j =0; j < c_len; j++){
+                printf("%c",switched_array[c_off + j]);
+            }
+            cout << endl;
+          }
 
-        for(int i = 0; i < line_count; i ++) {
-            printf("%d\n", label_len_array[i]);
-        }
+        // for(int i = 0; i < line_count; i ++) {
+        //     printf("%d\n", label_len_array[i]);
+        // }
 
+        // for(int i = 0; i < line_count; i++) {
+        //     int co_len = comma_len_array[i];
+        //     int co_off = comma_offset_array[i];
+        //     for(int j = 0; j < co_len; j++){
+        //         printf("%d ", h_output_array[co_off + j]);
+        //     }
+        //     cout << endl;
+        // }
        
 
 
