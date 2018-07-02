@@ -18,8 +18,9 @@ using namespace std;
 
 #define BUFFER_SIZE 25000000
 #define NUM_COMMAS 500
-//#define INPUT_FILE "./input_file.csv"
-#define INPUT_FILE "./taxi_input.txt"
+#define INPUT_FILE "./input_file.csv"
+//#define INPUT_FILE "./taxi_input.txt"
+#define CSV_FILE 1 // 1: csv file, 0: txt file
 
 
 typedef std::chrono::high_resolution_clock Clock;
@@ -302,7 +303,7 @@ void coord_len_offset(  char* buffer, int* len_array, int* offest_array, int* li
             int cur = p_array[coord_num];
 
             if(coord_num == comma_off - 1){
-                len = len_array[line_num] - (p_offset_array[line_num] - offest_array[line_num]) - cur - garbage_char;
+                len = len_array[line_num] - (p_offset_array[line_num] - offest_array[line_num]) - cur - garbage_char - CSV_FILE;
             }
             else {
                 int next = p_array[coord_num + 1];
