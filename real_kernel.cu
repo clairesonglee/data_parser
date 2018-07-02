@@ -332,61 +332,71 @@ void coord_len_offset(  char* buffer, int* len_array, int* offest_array, int* li
 
 
 
+__global__
+void switch_xy(char* buffer, int* line_idx_array,int* polyline_array, int* p_offset_array, int* c_len_array, int* c_offset_array,
+                char* switched_array, int total, int total2, int* label_len_array, int* label_offset_array){
 
-// __global__
-// void switch_xy(char* buffer, int* line_idx_array,int* polyline_array, int* p_comma_offset_array, int* c_len_array, int* c_offset_array,
-// 				int* switched_array){
-
-//     __shared__ int comma_idx;
-//     __shared__ int line_num;
-
-
-//     int block_num = blockIdx.x;
-//     if(threadIdx.x == 0)
-//     	line_num = line_idx_array[block_num];
-//     __syncthreads();
-
-//     int p_comma_off = p_comma_offset_array[line_num + 1];
-//     int cur = polyline_array[line_num];
-//     int next;
-
-//     int len = c_len_array[block_num];
-//     int offset = c_offset_array[block_num];
-//     int start_idx = buffer + cur + p_comma_offset_array[line_num];;
+    __shared__ int comma_idx;
+    __shared__ int line_num;
+    __shared__ int label_len;
+    __shared__ int label_offset;
 
 
 
-//     if(threadIdx.x < len) {
+    int block_num = blockIdx.x;
+    if(threadIdx.x == 0){
+        line_num = line_idx_array[block_num];
+        label_len = label_len_array[line_num];
+        label_offset = label_offset_array[line_num];
+    }
+    __syncthreads();
 
-//        // switched_array[threadIdx.x] = ' ';
+  //  int p_comma_off = p_comma_offset_array[line_num + 1];
+    int cur = polyline_array[block_num];
+
+    int len = c_len_array[block_num];
+    int offset = c_offset_array[block_num];
+    long start_idx = cur + p_offset_array[line_num];
 
 
-//         if(buffer[threadIdx.x + start_idx] == ',')
-//             comma_idx = threadIdx.x;
-//         __syncthreads();
+    // if(threadIdx.x < label_len) {
+    //     switched_array[offset + threadIdx.x] =
+    // }
 
-//         int position = threadIdx.x - comma_idx;
+    
 
-//         if((threadIdx.x == 0) || (threadIdx.x == len - 1) ){
-//             switched_array[offset + threadIdx.x] = buffer[start_idx + threadIdx.x];
-//         }
-//         else if(position == 1) {
-//             switched_array[offset + len - threadIdx.x] = buffer[start_idx + threadIdx.x];
-//         }
-//         else if(position == 0){
-//             switched_array[offset + len - 2 - threadIdx.x] = buffer[start_idx + threadIdx.x];
-//         }
-//         else if(position > 0){
-//             switched_array[offset + position - 1] = buffer[start_idx + threadIdx.x];
-//         }
+    if(threadIdx.x < len) {
 
-//         else{
-//             switched_array[offset + len - 1 - abs(position)] = buffer[start_idx + threadIdx.x];
-//         }
+       // switched_array[threadIdx.x] = ' ';
 
-//     }
 
-// }
+        if(buffer[start_idx + threadIdx.x] == ',')
+            comma_idx = threadIdx.x;
+        __syncthreads();
+
+        int position = threadIdx.x - comma_idx;
+
+        if((threadIdx.x == 0) || (threadIdx.x == len - 1) ){
+            switched_array[offset + threadIdx.x] = buffer[start_idx + threadIdx.x];
+        }
+        else if(position == 1) {
+            switched_array[offset + len - threadIdx.x] = buffer[start_idx + threadIdx.x];
+        }
+        else if(position == 0){
+            switched_array[offset + len - 2 - threadIdx.x] = buffer[start_idx + threadIdx.x];
+        }
+        else if(position > 0){
+            switched_array[offset + position - 1] = buffer[start_idx + threadIdx.x];
+        }
+
+        else{
+            switched_array[offset + len - 1 - abs(position)] = buffer[start_idx + threadIdx.x];
+        }
+
+    }
+    
+
+}
 
 __global__
 void clear_array (int* input_array, int len) {
@@ -707,22 +717,22 @@ int main() {
         cudaMemcpy(line_idx_array, d_line_num_array, sizeof(int) * polyline_total_num_commas, cudaMemcpyDeviceToHost);
 
 
-		int garbage_char = 2;
-	    for(int i = 0; i < polyline_total_num_commas; i++) {
-	    	int line_num = line_idx_array[i];
-	    	int comma_off2 = polyline_comma_offset_array[line_num + 1];
-	        int cur = polyline_array[i];
+		// int garbage_char = 2;
+	 //    for(int i = 0; i < polyline_total_num_commas; i++) {
+	 //    	int line_num = line_idx_array[i];
+	 //    	int comma_off2 = polyline_comma_offset_array[line_num + 1];
+	 //        int cur = polyline_array[i];
 
-	    	if(i == comma_off2 - 1) {
-	   		     printf("%.*s\n", len_array[line_num] - (polyline_offset_array[line_num] - offset_array[line_num]) - cur - garbage_char, buffer + cur+ polyline_offset_array[line_num]);
-	    		 cout << endl;
-	    	}
-	    	else {
-	    		int next = polyline_array[i + 1];
-	   			printf("%.*s\n", next - cur - garbage_char, buffer + cur + polyline_offset_array[line_num]);
-	    	}
+	 //    	if(i == comma_off2 - 1) {
+	 //   		     printf("%.*s\n", len_array[line_num] - (polyline_offset_array[line_num] - offset_array[line_num]) - cur - garbage_char, buffer + cur+ polyline_offset_array[line_num]);
+	 //    		 cout << endl;
+	 //    	}
+	 //    	else {
+	 //    		int next = polyline_array[i + 1];
+	 //   			printf("%.*s\n", next - cur - garbage_char, buffer + cur + polyline_offset_array[line_num]);
+	 //    	}
 
-	    }
+	 //    }
 
         //switch_xy setup
 
@@ -744,43 +754,41 @@ int main() {
         output_sort<<<1, NUM_THREADS>>>(d_c_len_array, polyline_total_num_commas + 1 ,d_c_offset_array);
         cudaMemcpy(c_offset_array, d_c_offset_array, (polyline_total_num_commas + 1) * sizeof(int), cudaMemcpyDeviceToHost);
 
-        // for(int i =0; i < polyline_total_num_commas; i++) {
-        //     cout << c_offset_array[i]<<endl;
-        // }
+        int coord_size;
+        cudaMemcpy(&coord_size, (int*) (d_c_offset_array + polyline_total_num_commas), sizeof(int), cudaMemcpyDeviceToHost);
+
+        char* switched_array = new char[coord_size];
+
+        char* d_switched_array;
+        cudaMalloc((int**) &d_switched_array, coord_size * sizeof(char));
 
 
-        // char* switched_array = new char[22];
+        dim3 coordGrid(polyline_total_num_commas,1,1);
+        dim3 coordBlock(128,1,1);
 
-        // char* d_switched_array;
-        // cudaMalloc((char**) &d_switched_array, 22 * sizeof(char));
-        // cudaMemcpy(d_switched_array, switched_array, 22 * sizeof(char), cudaMemcpyHostToDevice);     
+        switch_xy<<<coordGrid,coordBlock>>>(d_buffer, d_line_num_array, d_polyline_array, d_polyline_offset_array, d_c_len_array, d_c_offset_array,
+                                            d_switched_array, coord_size, polyline_total_num_commas, d_label_len_array, d_label_offset_array);
 
-        // dim3 coordGrid(1,1,1);
-        // dim3 coordBlock(64,1,1);
+        cudaDeviceSynchronize();
 
-
-
+        cudaMemcpy(switched_array, d_switched_array, coord_size * sizeof(char), cudaMemcpyDeviceToHost);     
 
 
+         for(int i = 0; i < polyline_total_num_commas; i++) {
+            int c_len = c_len_array[i];
+            int c_off = c_offset_array[i];
 
-        // switch_xy<<<coordGrid,coordBlock>>>(d_buffer, d_line_num_array, d_polyline_array, d_polyline_comma_offset_array2, d_c_len_array, d_c_offset_array,
-        // 									d_switched_array);
+            for(int j =0; j < c_len; j++){
+                printf("%c",switched_array[c_off + j]);
+            }
+            cout << endl;
+         }
 
-        // cudaDeviceSynchronize();
-
-        // cudaMemcpy(switched_array, d_switched_array, 22 * sizeof(char), cudaMemcpyDeviceToHost);     
-
-        // printf("\n");
-        // for(int i = 0; i < 22; i++)
-        //     printf("%c", switched_array[i]);
-        // printf("\n");
-
-
-        // cudaFree(d_switched_array);
+       
 
 
 
-	
+	    cudaFree(d_polyline_array);
         cudaFree(d_polyline_len_array);
         cudaFree(d_polyline_offset_array);
         cudaFree(d_output_array);
@@ -795,6 +803,10 @@ int main() {
         cudaFree(d_num_commas);
 
         cudaFree(d_line_num_array);
+        cudaFree(d_switched_array);
+        cudaFree(d_c_len_array);
+        cudaFree(d_c_offset_array);
+
 
 
         // delete temporary buffers
@@ -806,6 +818,10 @@ int main() {
         delete [] h_output_array;
 
         delete [] line_idx_array;
+        delete [] switched_array;
+        delete [] c_len_array;
+        delete [] c_offset_array;
+
 
     }
 
