@@ -301,7 +301,7 @@ void polyline_coords (char* buffer, int* len_array, int* offset_array, int* comm
 
 __global__
 void coord_len_offset(  char* buffer, int* len_array, int* offest_array, int* line_idx_array, int* p_array, int* p_offset_array, int* p_comma_offset_array, int total_num, int garbage_char,
-                        int* c_len_array) {
+                        int* c_len_array, int* label_len_array) {
 
         int coord_num = threadIdx.x + blockIdx.x * blockDim.x;
         int len;
@@ -320,8 +320,8 @@ void coord_len_offset(  char* buffer, int* len_array, int* offest_array, int* li
                 len = next - cur - garbage_char;
             }   
            // offset = (int)(buffer + cur + p_offset_array[line_num]);
-
-            c_len_array[coord_num] = len;
+            int label_len = label_len_array[line_num];
+            c_len_array[coord_num] = (len + label_len);
             //printf("%d", len);
             //c_offset_array[coord_num] = offset;
 
@@ -354,43 +354,40 @@ void switch_xy(char* buffer, int* line_idx_array,int* polyline_array, int* p_off
   //  int p_comma_off = p_comma_offset_array[line_num + 1];
     int cur = polyline_array[block_num];
 
-    int len = c_len_array[block_num];
+    int len = c_len_array[block_num] - label_len;
     int offset = c_offset_array[block_num];
     long start_idx = cur + p_offset_array[line_num];
 
 
-    // if(threadIdx.x < label_len) {
-    //     switched_array[offset + threadIdx.x] =
-    // }
+    if(threadIdx.x < label_len) {
+        switched_array[offset + threadIdx.x] = buffer[threadIdx.x + label_offset];
+    }
 
-    
+    else if(threadIdx.x < len + label_len) {
 
-    if(threadIdx.x < len) {
+        int coord_idx = threadIdx.x - label_len;
 
-       // switched_array[threadIdx.x] = ' ';
-
-
-        if(buffer[start_idx + threadIdx.x] == ',')
-            comma_idx = threadIdx.x;
+        if(buffer[start_idx + coord_idx] == ',')
+            comma_idx = coord_idx;
         __syncthreads();
 
-        int position = threadIdx.x - comma_idx;
+        int position = coord_idx - comma_idx;
 
-        if((threadIdx.x == 0) || (threadIdx.x == len - 1) ){
-            switched_array[offset + threadIdx.x] = buffer[start_idx + threadIdx.x];
+        if((coord_idx == 0) || (coord_idx == len - 1) ){
+            switched_array[offset + coord_idx + label_len ] = buffer[start_idx + coord_idx];
         }
         else if(position == 1) {
-            switched_array[offset + len - threadIdx.x] = buffer[start_idx + threadIdx.x];
+            switched_array[offset + len - coord_idx + label_len] = buffer[start_idx + coord_idx];
         }
         else if(position == 0){
-            switched_array[offset + len - 2 - threadIdx.x] = buffer[start_idx + threadIdx.x];
+            switched_array[offset + len - 2 - coord_idx + label_len] = buffer[start_idx + coord_idx];
         }
         else if(position > 0){
-            switched_array[offset + position - 1] = buffer[start_idx + threadIdx.x];
+            switched_array[offset + position - 1 + label_len] = buffer[start_idx + coord_idx];
         }
 
         else{
-            switched_array[offset + len - 1 - abs(position)] = buffer[start_idx + threadIdx.x];
+            switched_array[offset + len - 1 - abs(position) + label_len] = buffer[start_idx + coord_idx];
         }
 
     }
@@ -747,7 +744,8 @@ int main() {
 
         dim3 dimGridcoord(ceil((float)polyline_total_num_commas / NUM_THREADS), 1, 1);
         dim3 dimBlockcoord(NUM_THREADS, 1, 1);
-        coord_len_offset<<<dimGridcoord, dimBlockcoord>>>(d_buffer, d_len_array, d_offset_array, d_line_num_array, d_polyline_array, d_polyline_offset_array, d_polyline_comma_offset_array2, polyline_total_num_commas, 2, d_c_len_array);
+        coord_len_offset<<<dimGridcoord, dimBlockcoord>>>(d_buffer, d_len_array, d_offset_array, d_line_num_array, d_polyline_array, d_polyline_offset_array, d_polyline_comma_offset_array2, polyline_total_num_commas, 
+                                                          2, d_c_len_array, d_label_len_array);
         cudaDeviceSynchronize();
         cudaMemcpy(c_len_array, d_c_len_array, polyline_total_num_commas * sizeof(int), cudaMemcpyDeviceToHost);
         
