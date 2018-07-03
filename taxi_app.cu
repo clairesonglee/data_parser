@@ -229,7 +229,7 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
 }
 
 __global__
-void output_sort(int* input, int len, int* output, int check) {
+void output_sort(int* input, int len, int* output) {
     typedef cub::BlockScan<int, NUM_THREADS> BlockScan; 
     __shared__ typename BlockScan::TempStorage temp_storage;
     __shared__ int prev_sum;
@@ -257,13 +257,6 @@ void output_sort(int* input, int len, int* output, int check) {
 	    __syncthreads();
 
     }
-
-    if(threadIdx.x == 0 && check == 1) {
-        for(int i =0; i <= len; i++) {
-            printf("%d\n", output[i]);
-        }
-    }
-
 
     __syncthreads();
 
@@ -595,12 +588,11 @@ int main() {
         dim3 dimGrid(NUM_BLOCKS,1,1);
         dim3 dimBlock(NUM_THREADS,1,1);
 
-
         merge_scan<<<dimGrid, dimBlock>>>(d_buffer, d_len_array, d_offset_array, d_output_array, d_stack, line_count, d_num_commas, d_SA_Table, d_total_num_commas, d_E, 0);
 
         cudaDeviceSynchronize();
 
-        output_sort<<<1, NUM_THREADS>>> (d_num_commas, line_count, d_comma_offset_array, 0);
+        output_sort<<<1, NUM_THREADS>>> (d_num_commas, line_count, d_comma_offset_array);
 
         cudaMemcpy(&total_num_commas, d_total_num_commas, sizeof(int), cudaMemcpyDeviceToHost);
 
@@ -668,7 +660,7 @@ int main() {
         cudaMalloc((int**) &d_polyline_comma_offset_array2, sizeof(int) * (line_count + 1));
 
 
-        output_sort<<<1, NUM_THREADS>>> (d_polyline_num_commas, line_count, d_polyline_comma_offset_array2, 0);
+        output_sort<<<1, NUM_THREADS>>> (d_polyline_num_commas, line_count, d_polyline_comma_offset_array2);
 
         cudaDeviceSynchronize();
 
@@ -730,7 +722,7 @@ int main() {
         cudaMemcpy(c_len_array, d_c_len_array, polyline_total_num_commas * sizeof(int), cudaMemcpyDeviceToHost);
         cudaDeviceSynchronize();
 
-        output_sort<<<1, NUM_THREADS>>>(d_c_len_array, polyline_total_num_commas , d_c_offset_array, 0);
+        output_sort<<<1, NUM_THREADS>>>(d_c_len_array, polyline_total_num_commas , d_c_offset_array);
         cudaMemcpy(c_offset_array, d_c_offset_array, (polyline_total_num_commas + 1) * sizeof(int), cudaMemcpyDeviceToHost);
 
 
