@@ -160,7 +160,7 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
     //if the current line is in the input file 
     while(line_num < total_lines ) {
 
-        temp_array_size = 10;
+        temp_array_size = NUM_THREADS;
         //dynamic memory allocation
         if(threadIdx.x == 0) {
             temp_output_array = (int*)malloc(sizeof(int) * temp_array_size);
