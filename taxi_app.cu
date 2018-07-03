@@ -13,8 +13,8 @@ using namespace std;
 #define NUM_STATES 3
 #define NUM_CHARS  256
 #define NUM_THREADS 512
-#define NUM_LINES 322
-#define NUM_BLOCKS 30
+#define NUM_LINES 324
+#define NUM_BLOCKS 400
 
 #define BUFFER_SIZE 25000000
 #define NUM_COMMAS 500
@@ -87,12 +87,13 @@ void remove_empty_elements (int** input, int* len_array, int total_lines, int* i
         		}
         	}
         	else {
-        		if(loop < len ){
-        			output_line_num[base + loop] = block_num;
+        		if(loop < len - 1 ){
+        			output_line_num[base + loop + 1] = block_num;
         			output[base + loop + 1] = (input[block_num])[loop] + 2;
         		}
         	}
         }
+        __syncthreads();
 
         if(threadIdx.x == 0) {
         	if(taxi_application){
@@ -160,6 +161,7 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
         prev_sum = 0;
         temp_prev_sum = 0;
         int loop;
+        __syncthreads();
 
         //If the string is longer than NUM_THREADS
         for(int ph = 0; ph < len; ph += NUM_THREADS) {
@@ -227,7 +229,7 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
 }
 
 __global__
-void output_sort(int* input, int len, int* output) {
+void output_sort(int* input, int len, int* output, int check) {
     typedef cub::BlockScan<int, NUM_THREADS> BlockScan; 
     __shared__ typename BlockScan::TempStorage temp_storage;
     __shared__ int prev_sum;
@@ -235,7 +237,7 @@ void output_sort(int* input, int len, int* output) {
     int temp_prev_sum = 0;
     prev_sum = 0;
 
-    for(int ph = 0; ph < (int)ceilf(((float)(len) / (float)NUM_THREADS)); ph ++) {
+    for(int ph = 0; ph < (int)ceilf((float) (len) / NUM_THREADS); ph ++) {
     	int loop = threadIdx.x + ph * NUM_THREADS;
     	temp_prev_sum = prev_sum;
 
@@ -246,11 +248,22 @@ void output_sort(int* input, int len, int* output) {
 	    if(loop < len)
 	    	output[loop] = end + prev_sum;
 	    __syncthreads();
+        if(loop == len - 1)
+            output[loop + 1] = temp_prev_sum + prev_sum;
+        __syncthreads();
+        
 	    if (threadIdx.x == 0)
 	    	prev_sum += temp_prev_sum;
 	    __syncthreads();
 
     }
+
+    if(threadIdx.x == 0 && check == 1) {
+        for(int i =0; i <= len; i++) {
+            printf("%d\n", output[i]);
+        }
+    }
+
 
     __syncthreads();
 
@@ -290,7 +303,7 @@ void polyline_coords (char* buffer, int* len_array, int* offset_array, int* comm
 
 
 __global__
-void coord_len_offset(  char* buffer, int* len_array, int* offest_array, int* line_idx_array, int* p_array, int* p_offset_array, int* p_comma_offset_array, int total_num, int garbage_char,
+void coord_len_offset(  char* buffer, int* len_array, int* offset_array, int* line_idx_array, int* p_array, int* p_offset_array, int* p_comma_offset_array, int total_num, int garbage_char,
                         int* c_len_array, int* label_len_array) {
 
         int coord_num = threadIdx.x + blockIdx.x * blockDim.x;
@@ -303,17 +316,20 @@ void coord_len_offset(  char* buffer, int* len_array, int* offest_array, int* li
             int cur = p_array[coord_num];
 
             if(coord_num == comma_off - 1){
-                len = len_array[line_num] - (p_offset_array[line_num] - offest_array[line_num]) - cur - garbage_char - CSV_FILE;
+                len = len_array[line_num] - (p_offset_array[line_num] - offset_array[line_num]) - cur - garbage_char - 1;
+
             }
             else {
                 int next = p_array[coord_num + 1];
                 len = next - cur - garbage_char;
+                // if(len < 0) {
+                //     printf("line_num: %d, coord_num: %d, next: %d cur: %d comma_off: %d\n", line_num, coord_num, next, cur, comma_off);
+                // }
             }   
            // offset = (int)(buffer + cur + p_offset_array[line_num]);
             int label_len = label_len_array[line_num];
             c_len_array[coord_num] = (len + label_len);
-            //printf("%d", len);
-            //c_offset_array[coord_num] = offset;
+
 
         }
 
@@ -347,6 +363,10 @@ void switch_xy(char* buffer, int* line_idx_array,int* polyline_array, int* p_off
     int len = c_len_array[block_num] - label_len;
     int offset = c_offset_array[block_num];
     long start_idx = cur + p_offset_array[line_num];
+
+    // if(threadIdx.x < len) {
+    //     switched_array[offset + threadIdx.x] = buffer[threadIdx.x + start_idx];
+    // }
 
 
     if(threadIdx.x < label_len) {
@@ -467,8 +487,6 @@ int main() {
     uint8_t* d_E;
     cudaMalloc((uint8_t**) &d_E, NUM_STATES * NUM_CHARS * sizeof(uint8_t));
 
-    //cudaMemcpyToSymbol(d_D, D, NUM_STATES * NUM_CHARS * sizeof(int));
-    //cudaMemcpyToSymbol(d_E, E, NUM_STATES * NUM_CHARS * sizeof(uint8_t));
 
     cudaMemcpy(d_E, E, NUM_STATES * NUM_CHARS * sizeof(uint8_t), cudaMemcpyHostToDevice);
     
@@ -496,8 +514,8 @@ int main() {
         // allocate memory:
         char* buffer = new char [BUFFER_SIZE];
         int* len_array = new int[NUM_LINES];
-        int* offset_array = new int[NUM_LINES];
-        int* comma_offset_array = new int[NUM_LINES];
+        int* offset_array = new int[NUM_LINES + 1];
+        int* comma_offset_array = new int[NUM_LINES + 1];
         int* comma_len_array = new int [NUM_LINES];
 
         offset_array[0] = 0;
@@ -528,12 +546,14 @@ int main() {
         is.close();
 
         //Memory allocation for kernel functions
+
+        int buffer_len = offset_array[line_count];
     
         int** d_output_array;
         cudaMalloc((int**)&d_output_array, line_count * sizeof(int*));
 
         char* d_buffer;
-        cudaMalloc((char**) &d_buffer, BUFFER_SIZE * sizeof(char));
+        cudaMalloc((char**) &d_buffer, buffer_len * sizeof(char));
 
         int* d_len_array;
         cudaMalloc((int**) &d_len_array, line_count * sizeof(int));
@@ -541,13 +561,13 @@ int main() {
         int* d_offset_array;
         cudaMalloc((int**) &d_offset_array, line_count * sizeof(int));
 
+
         int* d_num_commas;
         cudaMalloc((int**) &d_num_commas, line_count * sizeof(int));
 
 
         int* d_comma_offset_array;
-        cudaMalloc((int**) &d_comma_offset_array, line_count * sizeof(int));
-
+        cudaMalloc((int**)&d_comma_offset_array, (line_count + 1) * sizeof(int));
 
         int* d_stack;
         cudaMalloc((int**) &d_stack, sizeof(int));
@@ -561,41 +581,32 @@ int main() {
 
         int temp = 0;
 
-        auto t1 = Clock::now();
 
-        cudaMemcpy(d_buffer, buffer, BUFFER_SIZE * sizeof(char), cudaMemcpyHostToDevice);     
+        cudaMemcpy(d_buffer, buffer, buffer_len * sizeof(char), cudaMemcpyHostToDevice);     
         cudaMemcpy(d_len_array, len_array, line_count * sizeof(int), cudaMemcpyHostToDevice);     
         cudaMemcpy(d_offset_array, offset_array, line_count * sizeof(int), cudaMemcpyHostToDevice);    
         cudaMemcpy(d_stack, &temp, sizeof(int), cudaMemcpyHostToDevice);
         cudaMemcpy(d_temp_base, &temp, sizeof(int), cudaMemcpyHostToDevice);
         cudaMemcpy(d_total_num_commas, &temp, sizeof(int), cudaMemcpyHostToDevice);
 
+        cudaDeviceSynchronize();
 
-
-        auto t2 = Clock::now();
-
-        cout <<"Host to Device:" <<std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << " microseconds" << endl;
 
         dim3 dimGrid(NUM_BLOCKS,1,1);
         dim3 dimBlock(NUM_THREADS,1,1);
 
-        auto t3 = Clock::now();
 
         merge_scan<<<dimGrid, dimBlock>>>(d_buffer, d_len_array, d_offset_array, d_output_array, d_stack, line_count, d_num_commas, d_SA_Table, d_total_num_commas, d_E, 0);
 
         cudaDeviceSynchronize();
 
-
-        int* d_comma_offset_array2;
-        cudaMalloc((int**)&d_comma_offset_array2, (line_count + 1) * sizeof(int));
-
-        output_sort<<<1, NUM_THREADS>>> (d_num_commas, line_count + 1, d_comma_offset_array2);
+        output_sort<<<1, NUM_THREADS>>> (d_num_commas, line_count, d_comma_offset_array, 0);
 
         cudaMemcpy(&total_num_commas, d_total_num_commas, sizeof(int), cudaMemcpyDeviceToHost);
 
+
         int* d_final_array;
         cudaMalloc((int**) &d_final_array, total_num_commas * sizeof(int));
-
 
         int* h_output_array = new int[total_num_commas];
 
@@ -603,30 +614,23 @@ int main() {
 
         cudaDeviceSynchronize();
 
-        remove_empty_elements<<<dimGrid, dimBlock>>> (d_output_array, d_num_commas, line_count, d_stack, d_temp_base, d_comma_offset_array2, d_final_array, d_final_array /* temp array */, 0);
+        remove_empty_elements<<<dimGrid, dimBlock>>> (d_output_array, d_num_commas, line_count, d_stack, d_temp_base, d_comma_offset_array, d_final_array, d_final_array /* temp array */, 0);
 
         cudaDeviceSynchronize();
 
-        auto t4 = Clock::now();
-        cout << "data trans:" << std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count() << " microseconds" << endl;
 
 
-        auto t5 = Clock::now();
         //change the size later
         cudaMemcpy(h_output_array, d_final_array, total_num_commas * sizeof(int), cudaMemcpyDeviceToHost);
         cudaMemcpy(comma_len_array, d_num_commas, line_count * sizeof(int), cudaMemcpyDeviceToHost);
-        cudaMemcpy(comma_offset_array, d_comma_offset_array2, (line_count + 1)* sizeof(int), cudaMemcpyDeviceToHost);
-        auto t6 = Clock::now();
-        cout << "Device to Host:" << std::chrono::duration_cast<std::chrono::microseconds>(t6 - t5).count() << " microseconds" << endl;
+        cudaMemcpy(comma_offset_array, d_comma_offset_array, (line_count + 1)* sizeof(int), cudaMemcpyDeviceToHost);
 
-        int* label_len_array = new int[line_count];
-        int* label_offset_array = new int[line_count];
 
         int* d_polyline_len_array;
         cudaMalloc((int**) &d_polyline_len_array, line_count * sizeof(int));
 
         int* d_polyline_offset_array;
-        cudaMalloc((int**) &d_polyline_offset_array, line_count * sizeof(int));
+        cudaMalloc((int**) &d_polyline_offset_array, (line_count + 1) * sizeof(int));
 
 	    int* d_label_len_array;
         cudaMalloc((int**) &d_label_len_array, line_count * sizeof(int));
@@ -634,26 +638,26 @@ int main() {
         int* d_label_offset_array;
         cudaMalloc((int**) &d_label_offset_array, line_count * sizeof(int));
 
+        int* d_polyline_num_commas;
+        cudaMalloc((int**) &d_polyline_num_commas, line_count * sizeof(int));
+
 
         dim3 dimGridPoly(ceil((float)line_count/NUM_THREADS),1,1);
 
-        polyline_coords<<<dimGridPoly, dimBlock>>>(d_buffer, d_len_array, d_offset_array, d_comma_offset_array2, d_final_array, 
+        cudaDeviceSynchronize();
+
+        polyline_coords<<<dimGridPoly, dimBlock>>>(d_buffer, d_len_array, d_offset_array, d_comma_offset_array, d_final_array, 
                 d_polyline_len_array, d_polyline_offset_array, d_label_len_array, d_label_offset_array, line_count);
 
         cudaDeviceSynchronize();
-
-
-        cudaMemcpy(label_len_array, d_label_len_array, line_count * sizeof(int), cudaMemcpyDeviceToHost);
-		cudaMemcpy(label_offset_array, d_label_offset_array, line_count * sizeof(int), cudaMemcpyDeviceToHost);
-        
 
         cudaMemcpy(d_stack, &temp, sizeof(int), cudaMemcpyHostToDevice);
         cudaMemcpy(d_temp_base, &temp, sizeof(int), cudaMemcpyHostToDevice);
         cudaMemcpy(d_total_num_commas, &temp, sizeof(int), cudaMemcpyHostToDevice);
 
 
-        int* d_polyline_num_commas;
-        cudaMalloc((int**) &d_polyline_num_commas, line_count * sizeof(int));
+        cudaDeviceSynchronize();
+
 
         merge_scan<<<dimGrid, dimBlock>>>(d_buffer, d_polyline_len_array, d_polyline_offset_array, d_output_array, d_stack, line_count, d_polyline_num_commas, d_SA_Table, d_total_num_commas, d_E, 1);
 
@@ -664,8 +668,9 @@ int main() {
         cudaMalloc((int**) &d_polyline_comma_offset_array2, sizeof(int) * (line_count + 1));
 
 
-        output_sort<<<1, NUM_THREADS>>> (d_polyline_num_commas, line_count + 1, d_polyline_comma_offset_array2);
+        output_sort<<<1, NUM_THREADS>>> (d_polyline_num_commas, line_count, d_polyline_comma_offset_array2, 0);
 
+        cudaDeviceSynchronize();
 
         int polyline_total_num_commas;
         cudaMemcpy(&polyline_total_num_commas, d_total_num_commas, sizeof(int), cudaMemcpyDeviceToHost);
@@ -679,9 +684,6 @@ int main() {
 
         cudaDeviceSynchronize();
 
-        int* d_polyline_comma_offset_array;
-        cudaMalloc((int**) &d_polyline_comma_offset_array, sizeof(int) * line_count);
-
 
         int* d_line_num_array;
         cudaMalloc((int**) &d_line_num_array, sizeof(int) * polyline_total_num_commas);
@@ -692,7 +694,7 @@ int main() {
         cudaDeviceSynchronize();
 
         int* polyline_array = new int[polyline_total_num_commas];
-        int* polyline_offset_array = new int[line_count];
+        int* polyline_offset_array = new int[line_count + 1];
         int* polyline_comma_len_array = new int [line_count];
         int* line_idx_array = new int[polyline_total_num_commas];
         int* polyline_comma_offset_array = new int[line_count + 1];
@@ -703,7 +705,7 @@ int main() {
         cudaMemcpy(polyline_comma_offset_array, d_polyline_comma_offset_array2, sizeof(int) * (line_count + 1), cudaMemcpyDeviceToHost);
 
 
-        cudaMemcpy(polyline_offset_array, d_polyline_offset_array, sizeof(int) * (line_count), cudaMemcpyDeviceToHost);
+        cudaMemcpy(polyline_offset_array, d_polyline_offset_array, sizeof(int) * (line_count + 1), cudaMemcpyDeviceToHost);
 
         cudaMemcpy(line_idx_array, d_line_num_array, sizeof(int) * polyline_total_num_commas, cudaMemcpyDeviceToHost);
 
@@ -718,15 +720,23 @@ int main() {
         int* d_c_offset_array;
         cudaMalloc((int**) &d_c_offset_array, (polyline_total_num_commas + 1) * sizeof(int));
 
+        cudaDeviceSynchronize();
+
         dim3 dimGridcoord(ceil((float)polyline_total_num_commas / NUM_THREADS), 1, 1);
         dim3 dimBlockcoord(NUM_THREADS, 1, 1);
         coord_len_offset<<<dimGridcoord, dimBlockcoord>>>(d_buffer, d_len_array, d_offset_array, d_line_num_array, d_polyline_array, d_polyline_offset_array, d_polyline_comma_offset_array2, polyline_total_num_commas, 
                                                           2, d_c_len_array, d_label_len_array);
         cudaDeviceSynchronize();
         cudaMemcpy(c_len_array, d_c_len_array, polyline_total_num_commas * sizeof(int), cudaMemcpyDeviceToHost);
-        
-        output_sort<<<1, NUM_THREADS>>>(d_c_len_array, polyline_total_num_commas + 1 ,d_c_offset_array);
+        cudaDeviceSynchronize();
+
+        output_sort<<<1, NUM_THREADS>>>(d_c_len_array, polyline_total_num_commas , d_c_offset_array, 0);
         cudaMemcpy(c_offset_array, d_c_offset_array, (polyline_total_num_commas + 1) * sizeof(int), cudaMemcpyDeviceToHost);
+
+
+
+        //switch_xy setups
+
 
         int coord_size;
         cudaMemcpy(&coord_size, (int*) (d_c_offset_array + polyline_total_num_commas), sizeof(int), cudaMemcpyDeviceToHost);
@@ -738,7 +748,9 @@ int main() {
 
 
         dim3 coordGrid(polyline_total_num_commas,1,1);
-        dim3 coordBlock(128,1,1);
+        dim3 coordBlock(NUM_THREADS,1,1);
+
+        cudaDeviceSynchronize();
 
         switch_xy<<<coordGrid,coordBlock>>>(d_buffer, d_line_num_array, d_polyline_array, d_polyline_offset_array, d_c_len_array, d_c_offset_array,
                                             d_switched_array, coord_size, polyline_total_num_commas, d_label_len_array, d_label_offset_array);
@@ -747,42 +759,28 @@ int main() {
 
         cudaMemcpy(switched_array, d_switched_array, coord_size * sizeof(char), cudaMemcpyDeviceToHost);     
 
+        cudaDeviceSynchronize();
 
          for(int i = 0; i < polyline_total_num_commas; i++) {
             int c_len = c_len_array[i];
             int c_off = c_offset_array[i];
-
             for(int j =0; j < c_len; j++){
                 printf("%c",switched_array[c_off + j]);
             }
             cout << endl;
           }
 
-        // for(int i = 0; i < line_count; i ++) {
-        //     printf("%d\n", label_len_array[i]);
-        // }
-
-        // for(int i = 0; i < line_count; i++) {
-        //     int co_len = comma_len_array[i];
-        //     int co_off = comma_offset_array[i];
-        //     for(int j = 0; j < co_len; j++){
-        //         printf("%d ", h_output_array[co_off + j]);
-        //     }
-        //     cout << endl;
-        // }
-       
-
-
-
 	    cudaFree(d_polyline_array);
         cudaFree(d_polyline_len_array);
         cudaFree(d_polyline_offset_array);
+        cudaFree(d_polyline_num_commas);
+        cudaFree(d_polyline_comma_offset_array2);
+
         cudaFree(d_output_array);
         cudaFree(d_buffer);
         cudaFree(d_len_array);
         cudaFree(d_offset_array);
         cudaFree(d_comma_offset_array);
-        cudaFree(d_comma_offset_array2);
 
         cudaFree(d_stack);
         cudaFree(d_temp_base);
@@ -795,8 +793,11 @@ int main() {
 
         cudaFree(d_label_len_array);
         cudaFree(d_label_offset_array);
+        cudaFree(d_total_num_commas);
 
-
+        cudaFree(d_SA_Table);
+        cudaFree(d_E);
+        cudaFree(d_final_array);
 
         // delete temporary buffers
         delete [] buffer;
@@ -811,8 +812,11 @@ int main() {
         delete [] c_len_array;
         delete [] c_offset_array;
 
-        delete [] label_len_array;
-        delete [] label_offset_array;
+        delete [] polyline_array;
+        delete [] polyline_offset_array;
+        delete [] polyline_comma_len_array;
+        delete [] polyline_comma_offset_array;
+        delete [] p_output_array;
 
     }
 
