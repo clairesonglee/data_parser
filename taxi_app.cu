@@ -17,9 +17,7 @@ using namespace std;
 #define NUM_BLOCKS 400
 
 #define BUFFER_SIZE 25000000
-#define NUM_COMMAS 500
 #define INPUT_FILE "./input_file.csv"
-//#define INPUT_FILE "./taxi_input.txt"
 #define CSV_FILE 1 // 1: csv file, 0: txt file
 
 
@@ -52,59 +50,75 @@ struct SA_op {
     }
 };
 
+/*
+	remove_empty_elements:
+
+	This function transfers the data from the pre-allocated array into the correct sized output array in order to 
+	remove all internal fragmentations.
+*/
+
 __global__
 void remove_empty_elements (int** input, int* len_array, int total_lines, int* index, int* temp_base, 
                             int* offset_array,  int* output, int* output_line_num, int taxi_application) {
 
-    __shared__ int line_num;
+    __shared__ int s_line_num;
     __shared__ int base;
 
     int len;
-    int block_num;
+    int line_num;
 
-
+    //get the next line to compute
     if(threadIdx.x == 0) 
-        line_num = atomicInc((unsigned int*) index, INT_MAX);
+        s_line_num = atomicInc((unsigned int*) index, INT_MAX);
     __syncthreads();
-    block_num =  line_num;
+    // all threads have the same line_num
+    line_num =  s_line_num;
 
-    
+    while(line_num < total_lines) {
 
-    while(block_num < total_lines) {
+    	//get the length of the line
+        len = len_array[line_num];
 
-        len = len_array[block_num];
-
-
+        //get the offset in order to save the output into the correct place
 		if(threadIdx.x == 0)
-			base = offset_array[block_num];
+			base = offset_array[line_num];
         __syncthreads();
         
+        // for loop for the line that is longer than NUM_THREADS(number of threads)
         for(int loop = threadIdx.x; loop < len; loop += NUM_THREADS) {
 
+        	//special flag for the second run of data_parser. (if taxi_app is on, then it inserts comma in front of every line)
         	if(!taxi_application) {
+        		//if the current character is in the line, it copies the value into the output array
         		if(loop < len){
-               		 output[base + loop] = (input[block_num])[loop];
+               		 output[base + loop] = (input[line_num])[loop];
         		}
         	}
         	else {
+        		//if the current character is in the line, it copies the value into the output array
+        		//also save the line_num for the taxi application
         		if(loop < len - 1 ){
-        			output_line_num[base + loop + 1] = block_num;
-        			output[base + loop + 1] = (input[block_num])[loop] + 2;
+        			output_line_num[base + loop + 1] = line_num;
+        			output[base + loop + 1] = (input[line_num])[loop] + 2;
         		}
         	}
         }
         __syncthreads();
 
         if(threadIdx.x == 0) {
+        	//speical flag for taxi_app that puts 0 in front of all lines and saves all line_num for each coordinate
         	if(taxi_application){
         		output[base] = 0;
-                output_line_num[base] = block_num;
+                output_line_num[base] = line_num;
             }
-            free(input[block_num]);
-            line_num = atomicInc((unsigned int*) index, INT_MAX);
+            //free the input array(it is dynamically allocated in merge_scan function)
+            free(input[line_num]);
+            //grab the next line
+            s_line_num = atomicInc((unsigned int*) index, INT_MAX);
         }
          __syncthreads();
-        block_num =  line_num;
+         //update the line_num for all threads
+        line_num =  s_line_num;
     }
 
 }
@@ -115,43 +129,45 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
                  int* index, int total_lines, int* num_commas_array, SA* d_SA_Table, int* total_num_commas, uint8_t* d_E, int taxi_application){
 
 
-    typedef cub::BlockScan<SA, NUM_THREADS> BlockScan; // change name
-    typedef cub::BlockScan<int, NUM_THREADS> BlockScan2; //
+    typedef cub::BlockScan<SA, NUM_THREADS> BlockScan_exclusive_scan; // change name
+    typedef cub::BlockScan<int, NUM_THREADS> BlockScan_exclusive_sum; //
 
-    __shared__ typename BlockScan::TempStorage temp_storage;
-    __shared__ typename BlockScan2::TempStorage temp_storage2;
+    __shared__ typename BlockScan_exclusive_scan::TempStorage temp_storage;
+    __shared__ typename BlockScan_exclusive_sum::TempStorage temp_storage2;
     __shared__ SA prev_value;
     __shared__ int prev_sum;
-    __shared__ int line_num;
+    __shared__ int s_line_num;
 
     SA temp_prev_val;
     int temp_prev_sum;
 
     int len, offset;
-    int block_num;
+    int line_num;
     int start_state;
 
     int* temp_output_array;
     int temp_array_size;
 
+    //grab the next/new line to compute
     if(threadIdx.x == 0) {
-        line_num = atomicInc((unsigned int*) index, INT_MAX);
+        s_line_num = atomicInc((unsigned int*) index, INT_MAX);
     }
     __syncthreads();
-    block_num =  line_num;
+    line_num = s_line_num;
 
-    while(block_num < total_lines ) {
+    //if the current line is in the input file 
+    while(line_num < total_lines ) {
 
         temp_array_size = NUM_THREADS;
         //dynamic memory allocation
         if(threadIdx.x == 0) {
             temp_output_array = (int*)malloc(sizeof(int) * temp_array_size);
-            output_array[block_num] = temp_output_array;
+            output_array[line_num] = temp_output_array;
         }
 
 
-        len = len_array[block_num];
-        offset = offset_array[block_num];
+        len = len_array[line_num];
+        offset = offset_array[line_num];
 
         //initialize starting values
         SA a = SA();
@@ -174,19 +190,40 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
 	            a = d_SA_Table[c];
             }
             __syncthreads();
-
-            BlockScan(temp_storage).ExclusiveScan(a, a, prev_value, SA_op(), temp_prev_val);
+            //Merge SAs (merge the data to make one final sequence)
+            BlockScan_exclusive_scan(temp_storage).ExclusiveScan(a, a, prev_value, SA_op(), temp_prev_val);
             __syncthreads();
            
             start_state = prev_value.v[0];
             int state = a.v[start_state];
             int start = (int) d_E[(int) (NUM_CHARS * state + c)];
             int end;
-            BlockScan2(temp_storage2).ExclusiveSum(start, end, temp_prev_sum);
+            //Excusive sum operation to find the number of commas
+            BlockScan_exclusive_sum(temp_storage2).ExclusiveSum(start, end, temp_prev_sum);
+            
+            //(if the array is full, then it doubles the size fo the array )
+            if(threadIdx.x == 0) {
+                while(prev_sum + temp_prev_sum > (temp_array_size)) {
+                    temp_array_size = temp_array_size * 2;
+                    //make a new array with double size
+                    int* temp_ptr = (int*)malloc(sizeof(int) * temp_array_size);
+                    //copy the data 
+                    for(int n = 0; n < prev_sum; n++) {
+                        temp_ptr[n] = output_array[line_num][n];
+                    }
+                    //free the old array
+                    free(output_array[line_num]);
+                    output_array[line_num] = temp_ptr;
+                }
+            }
+            __syncthreads();
+
+            //save the data (comma_index)
             if(start == 1 && loop < len) {
-                (output_array[block_num])[end + prev_sum] = loop;
+                (output_array[line_num])[end + prev_sum] = loop;
             }
 
+            //save the end values for the next iteration
             if(threadIdx.x == 0) {
             	prev_value = temp_prev_val;
             	prev_sum += temp_prev_sum;
@@ -194,39 +231,31 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
 
             __syncthreads();
 
-            if(threadIdx.x == 0) {
-                if(prev_sum > (NUM_THREADS / 2)) {
-                    temp_array_size += NUM_THREADS;
-                    int* temp_ptr = (int*)malloc(sizeof(int) * temp_array_size);
-                    for(int n = 0; n < prev_sum; n++) {
-                        temp_ptr[n] = output_array[block_num][n];
-                    }
-                    free(output_array[block_num]);
-                    output_array[block_num] = temp_ptr;
-                }
-            }
-            __syncthreads();
                     
         }
 
+        //if the last thread saves the number of commas in the line
         if(loop == len - 1) {
+        	//for the taxi app, it stores one more space (in front of every line) - this will be filled in remove_empty_elements kernel function
         	if(taxi_application)
 				prev_sum++;
-            num_commas_array[block_num] = prev_sum;
+            num_commas_array[line_num] = prev_sum;
+            //atomic operation to track total number of commas in the input file to properly allocated the space for the output array
             int temp = atomicAdd(total_num_commas, prev_sum);
         }
 
-
-
         //to get the next line
         if(threadIdx.x == 0) 
-            line_num = atomicInc((unsigned int*) index, INT_MAX);
+            s_line_num = atomicInc((unsigned int*) index, INT_MAX);
          __syncthreads();
-        block_num =  line_num;
+        line_num =  s_line_num;
     }
 
-
 }
+
+/*
+	This is just a function that calles ExclusiveSum function.
+*/
 
 __global__
 void output_sort(int* input, int len, int* output) {
@@ -237,6 +266,7 @@ void output_sort(int* input, int len, int* output) {
     int temp_prev_sum = 0;
     prev_sum = 0;
 
+    //if the len is longer than the number of threads
     for(int ph = 0; ph < (int)ceilf((float) (len) / NUM_THREADS); ph ++) {
     	int loop = threadIdx.x + ph * NUM_THREADS;
     	temp_prev_sum = prev_sum;
@@ -248,6 +278,7 @@ void output_sort(int* input, int len, int* output) {
 	    if(loop < len)
 	    	output[loop] = end + prev_sum;
 	    __syncthreads();
+	    //save the last value as well (the output array has one more element than the input array because the first element is 0)
         if(loop == len - 1)
             output[loop + 1] = temp_prev_sum + prev_sum;
         __syncthreads();
@@ -264,68 +295,78 @@ void output_sort(int* input, int len, int* output) {
 }
 
 
-
+/*
+	This function computes the length and the start index for the polyline (last flied) and the label (taxi ID)
+*/
 
 __global__
 void polyline_coords (char* buffer, int* len_array, int* offset_array, int* comma_offset_array, int* comma_array,
                     int* output_len_array, int* output_offset_array, int* label_len_array, int* label_offset_array, int total_lines){
 
+		// each threads gets one line
         int loop = threadIdx.x + blockIdx.x * blockDim.x;
         if(loop < total_lines) {
             int offset = offset_array[loop];
             int comma_offset = comma_offset_array[loop];
             int len = len_array[loop];
 
+            //find the start and end of the polyline (last field)
             int start_idx = offset + comma_array[comma_offset + 7] + 3; 
             int end_idx = offset + len - 2;
 
+            //save the length and start_idx of the polyline
             output_len_array[loop] = end_idx - start_idx;
             output_offset_array[loop] = start_idx; // -1 for the first index
 
+            //find the start and the end of the label
             int label_start_idx = offset + 1;
             int label_end_idx = offset + comma_array[comma_offset] - 1;
+            //find the length of the label
             int label_len = label_end_idx - label_start_idx;
 
+            //save the length and start_idx of the label
             label_len_array[loop] = label_len;
             label_offset_array[loop] = label_start_idx;
-
 
         }
     
 }
-
+/*
+	This function computes the length of the output line for the each coordinate, whcih is the sum of the lenght of label and the lenght of 
+	the coordinate. 
+*/
 
 __global__
 void coord_len_offset(  char* buffer, int* len_array, int* offset_array, int* line_idx_array, int* p_array, int* p_offset_array, int* p_comma_offset_array, int total_num, int garbage_char,
                         int* c_len_array, int* label_len_array) {
 
+		//each threads computes one coordinate
         int coord_num = threadIdx.x + blockIdx.x * blockDim.x;
         int len;
 
-
         if(coord_num < total_num) {
+        	//get the line number of the coordinate
             int line_num = line_idx_array[coord_num];
             int comma_off = p_comma_offset_array[line_num + 1];
+            //get the index of the starting comma
             int cur = p_array[coord_num];
 
+            //if the coordinate is the last coordinate of the line
             if(coord_num == comma_off - 1){
-                len = len_array[line_num] - (p_offset_array[line_num] - offset_array[line_num]) - cur - garbage_char - 1;
+                len = len_array[line_num] - (p_offset_array[line_num] - offset_array[line_num]) - cur - garbage_char - CSV_FILE;
 
             }
             else {
+            	//get the index of the ending comma
                 int next = p_array[coord_num + 1];
+                //garbage_char is the number of characters that are meaningless (e.g. "")
                 len = next - cur - garbage_char;
-                // if(len < 0) {
-                //     printf("line_num: %d, coord_num: %d, next: %d cur: %d comma_off: %d\n", line_num, coord_num, next, cur, comma_off);
-                // }
             }   
-           // offset = (int)(buffer + cur + p_offset_array[line_num]);
             int label_len = label_len_array[line_num];
+            //length of coordinate = len of coordinate + len of label
             c_len_array[coord_num] = (len + label_len);
 
-
         }
-
 
 }
 
