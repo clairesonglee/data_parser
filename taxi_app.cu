@@ -137,6 +137,8 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
     __shared__ SA prev_value;
     __shared__ int prev_sum;
     __shared__ int s_line_num;
+    __shared__ int s_temp_array_size;
+    __shared__ int* s_temp_ptr;
 
     SA temp_prev_val;
     int temp_prev_sum;
@@ -158,7 +160,7 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
     //if the current line is in the input file 
     while(line_num < total_lines ) {
 
-        temp_array_size = NUM_THREADS;
+        temp_array_size = 10;
         //dynamic memory allocation
         if(threadIdx.x == 0) {
             temp_output_array = (int*)malloc(sizeof(int) * temp_array_size);
@@ -200,22 +202,42 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
             int end;
             //Excusive sum operation to find the number of commas
             BlockScan_exclusive_sum(temp_storage2).ExclusiveSum(start, end, temp_prev_sum);
-            
+
             //(if the array is full, then it doubles the size fo the array )
-            if(threadIdx.x == 0) {
-                while(prev_sum + temp_prev_sum > (temp_array_size)) {
-                    temp_array_size = temp_array_size * 2;
-                    //make a new array with double size
-                    int* temp_ptr = (int*)malloc(sizeof(int) * temp_array_size);
-                    //copy the data 
-                    for(int n = 0; n < prev_sum; n++) {
-                        temp_ptr[n] = output_array[line_num][n];
-                    }
-                    //free the old array
-                    free(output_array[line_num]);
+
+            if(prev_sum + temp_prev_sum > temp_array_size){
+            	int new_sum = prev_sum + temp_prev_sum;
+            	int* temp_ptr;
+            	//make a new array with double size
+            	if(threadIdx.x == 0) {
+            		while(new_sum > temp_array_size) {
+            			temp_array_size = temp_array_size * 2;
+            		}
+            		s_temp_array_size = temp_array_size;
+            		s_temp_ptr = (int*)malloc(sizeof(int) * temp_array_size);
+            	}
+            	//all threads have the same ptr and the array size
+            	__syncthreads();
+            	temp_array_size = s_temp_array_size;
+            	temp_ptr = s_temp_ptr;
+            	//copy the data 
+            	for(int j = 0; j < (int)ceilf((float) (prev_sum) / NUM_THREADS); j++) {
+            		int idx = threadIdx.x + j * NUM_THREADS;
+            		if(idx < prev_sum) {
+            			temp_ptr[idx] = output_array[line_num][idx];
+            		}
+            	}
+            	__syncthreads();
+
+            	//free the old array
+            	if(threadIdx.x == 0) {
+            		free(output_array[line_num]);
                     output_array[line_num] = temp_ptr;
-                }
+            	}	
             }
+
+
+
             __syncthreads();
 
             //save the data (comma_index)
