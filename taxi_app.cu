@@ -172,9 +172,8 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
         offset = offset_array[line_num];
 
         //initialize starting values
-        SA a = SA();
+        SA a;
         prev_value = a;
-        temp_prev_val = SA();
 
         prev_sum = 0;
         temp_prev_sum = 0;
@@ -561,8 +560,7 @@ int main() {
         char* buffer = new char [BUFFER_SIZE];
         int* len_array = new int[NUM_LINES];
         int* offset_array = new int[NUM_LINES + 1];
-        int* comma_offset_array = new int[NUM_LINES + 1];
-        int* comma_len_array = new int [NUM_LINES];
+       
         // initialize offset array
         offset_array[0] = 0;   
         // read line by line from input file 
@@ -635,14 +633,14 @@ int main() {
         cudaMemcpy(d_temp_base, &temp, sizeof(int), cudaMemcpyHostToDevice);
         cudaMemcpy(d_total_num_commas, &temp, sizeof(int), cudaMemcpyHostToDevice);
         // synchronizes gpu functions with cpu 
-        cudaDeviceSynchronize();    
+     //   cudaDeviceSynchronize();    
         // grid and block dimensions to launch kernel function
         dim3 dimGrid(NUM_BLOCKS,1,1);
         dim3 dimBlock(NUM_THREADS,1,1);
         // function call to locate commas in input line
         merge_scan<<<dimGrid, dimBlock>>>(d_buffer, d_len_array, d_offset_array, d_output_array, d_stack, line_count, d_num_commas, d_SA_Table, d_total_num_commas, d_E, 0);
         // waits until all blocks in gpu finish running
-        cudaDeviceSynchronize();
+       // cudaDeviceSynchronize();
         // sorts output 
         output_sort<<<1, NUM_THREADS>>> (d_num_commas, line_count, d_comma_offset_array);
         // copies number of commas to host memory
@@ -651,22 +649,16 @@ int main() {
         // creates an array to hold commas in device memory
         int* d_final_array;
         cudaMalloc((int**) &d_final_array, total_num_commas * sizeof(int));
-        // creates an array to hold commas in host memory
-        int* h_output_array = new int[total_num_commas];
+      
         // makes a temporary d_stack
         cudaMemcpy(d_stack, &temp, sizeof(int), cudaMemcpyHostToDevice);
         // synchronizes gpu functions with cpu 
-        cudaDeviceSynchronize();
+        //cudaDeviceSynchronize();
         // launches kernel function to clear unnecessary information
         remove_empty_elements<<<dimGrid, dimBlock>>> (d_output_array, d_num_commas, line_count, d_stack, d_temp_base, d_comma_offset_array, d_final_array, d_final_array /* temp array */, 0);
         // synchronizes gpu functions with cpu 
-        cudaDeviceSynchronize();
-
-        // copies device memory back to host 
-        cudaMemcpy(h_output_array, d_final_array, total_num_commas * sizeof(int), cudaMemcpyDeviceToHost);
-        cudaMemcpy(comma_len_array, d_num_commas, line_count * sizeof(int), cudaMemcpyDeviceToHost);
-        cudaMemcpy(comma_offset_array, d_comma_offset_array, (line_count + 1)* sizeof(int), cudaMemcpyDeviceToHost);
-
+       // cudaDeviceSynchronize();
+      
         // allocates memory 
         int* d_polyline_len_array;
         cudaMalloc((int**) &d_polyline_len_array, line_count * sizeof(int));
@@ -686,23 +678,23 @@ int main() {
         // grid dimensions for polyline kernel function 
         dim3 dimGridPoly(ceil((float)line_count/NUM_THREADS),1,1);
 
-        cudaDeviceSynchronize();
+        //cudaDeviceSynchronize();
         // launches function to calculate starting index of position of polyline, length of polyline, index of label, length of label
         polyline_coords<<<dimGridPoly, dimBlock>>>(d_buffer, d_len_array, d_offset_array, d_comma_offset_array, d_final_array, 
                 d_polyline_len_array, d_polyline_offset_array, d_label_len_array, d_label_offset_array, line_count);
 
-        cudaDeviceSynchronize();
-        // copies memory from host to device
+        //cudaDeviceSynchronize();
+        //reset temp values for kernel functions
         cudaMemcpy(d_stack, &temp, sizeof(int), cudaMemcpyHostToDevice);
         cudaMemcpy(d_temp_base, &temp, sizeof(int), cudaMemcpyHostToDevice);
         cudaMemcpy(d_total_num_commas, &temp, sizeof(int), cudaMemcpyHostToDevice);
 
-        cudaDeviceSynchronize();
+        //cudaDeviceSynchronize();
 
         // finds the comma indices within polyline
         merge_scan<<<dimGrid, dimBlock>>>(d_buffer, d_polyline_len_array, d_polyline_offset_array, d_output_array, d_stack, line_count, d_polyline_num_commas, d_SA_Table, d_total_num_commas, d_E, 1);
 
-        cudaDeviceSynchronize();
+        //cudaDeviceSynchronize();
 
         // output to output sort function 
         int* d_polyline_comma_offset_array2;
@@ -711,19 +703,18 @@ int main() {
         // sorts the output to have the array hold the correct index
         output_sort<<<1, NUM_THREADS>>> (d_polyline_num_commas, line_count, d_polyline_comma_offset_array2);
 
-        cudaDeviceSynchronize();
+        //cudaDeviceSynchronize();
         // finds the total number of commas in polyline
         int polyline_total_num_commas;
         cudaMemcpy(&polyline_total_num_commas, d_total_num_commas, sizeof(int), cudaMemcpyDeviceToHost);
         // uses number of commas in polyline to allocate output array in device memory
         int* d_polyline_array;
         cudaMalloc((int**) &d_polyline_array, polyline_total_num_commas * sizeof(int));
-        // uses number of commas in polyline to allocate output array in host memory
-        int* p_output_array = new int[polyline_total_num_commas];
+       
         // copies temp values to variable
         cudaMemcpy(d_stack, &temp, sizeof(int), cudaMemcpyHostToDevice);
 
-        cudaDeviceSynchronize();
+//        cudaDeviceSynchronize();
 
         // creates array to find line number using comma index in polyline
         int* d_line_num_array;
@@ -732,21 +723,8 @@ int main() {
         // clears unnecessary elements 
         remove_empty_elements<<<dimGrid, dimBlock>>> (d_output_array, d_polyline_num_commas, line_count, d_stack, d_temp_base, d_polyline_comma_offset_array2, d_polyline_array, d_line_num_array, 1);
 
-        cudaDeviceSynchronize();
-        // allocates memory to hold necessary information about polyline
-        int* polyline_array = new int[polyline_total_num_commas];
-        int* polyline_offset_array = new int[line_count + 1];
-        int* polyline_comma_len_array = new int [line_count];
-        int* line_idx_array = new int[polyline_total_num_commas];
-        int* polyline_comma_offset_array = new int[line_count + 1];
-
-        // copies information from device to host
-        cudaMemcpy(polyline_array, d_polyline_array, sizeof(int) * polyline_total_num_commas, cudaMemcpyDeviceToHost);
-        cudaMemcpy(polyline_comma_len_array, d_polyline_num_commas, sizeof(int) * line_count, cudaMemcpyDeviceToHost);
-        cudaMemcpy(polyline_comma_offset_array, d_polyline_comma_offset_array2, sizeof(int) * (line_count + 1), cudaMemcpyDeviceToHost);
-        cudaMemcpy(polyline_offset_array, d_polyline_offset_array, sizeof(int) * (line_count + 1), cudaMemcpyDeviceToHost);
-        cudaMemcpy(line_idx_array, d_line_num_array, sizeof(int) * polyline_total_num_commas, cudaMemcpyDeviceToHost);
-
+       // cudaDeviceSynchronize();
+       
         //switch_xy setup
 
         // allocates memory to hold necessary information about coordinates
@@ -758,16 +736,16 @@ int main() {
         int* d_c_offset_array;
         cudaMalloc((int**) &d_c_offset_array, (polyline_total_num_commas + 1) * sizeof(int));
 
-        cudaDeviceSynchronize();
+        //cudaDeviceSynchronize();
         // sets up grid and block to launch kernel function
         dim3 dimGridcoord(ceil((float)polyline_total_num_commas / NUM_THREADS), 1, 1);
         dim3 dimBlockcoord(NUM_THREADS, 1, 1);
         // finds the length of each coordinate pair in polyline
         coord_len_offset<<<dimGridcoord, dimBlockcoord>>>(d_buffer, d_len_array, d_offset_array, d_line_num_array, d_polyline_array, d_polyline_offset_array, d_polyline_comma_offset_array2, polyline_total_num_commas, 
                                                           2, d_c_len_array, d_label_len_array);
-        cudaDeviceSynchronize();
+        //cudaDeviceSynchronize();
         cudaMemcpy(c_len_array, d_c_len_array, polyline_total_num_commas * sizeof(int), cudaMemcpyDeviceToHost);
-        cudaDeviceSynchronize();
+        //cudaDeviceSynchronize();
         // sorts the output to hold correct indices
         output_sort<<<1, NUM_THREADS>>>(d_c_len_array, polyline_total_num_commas , d_c_offset_array);
         cudaMemcpy(c_offset_array, d_c_offset_array, (polyline_total_num_commas + 1) * sizeof(int), cudaMemcpyDeviceToHost);
@@ -788,16 +766,16 @@ int main() {
         dim3 coordGrid(polyline_total_num_commas,1,1);
         dim3 coordBlock(NUM_THREADS,1,1);
 
-        cudaDeviceSynchronize();
+        //cudaDeviceSynchronize();
         // launches kernel function to switch x and y positions of each coordinate in polyline 
         switch_xy<<<coordGrid,coordBlock>>>(d_buffer, d_line_num_array, d_polyline_array, d_polyline_offset_array, d_c_len_array, d_c_offset_array,
                                             d_switched_array, coord_size, polyline_total_num_commas, d_label_len_array, d_label_offset_array);
 
-        cudaDeviceSynchronize();
+        //cudaDeviceSynchronize();
         // move output array from device to host 
         cudaMemcpy(switched_array, d_switched_array, coord_size * sizeof(char), cudaMemcpyDeviceToHost);     
 
-        cudaDeviceSynchronize();
+        //cudaDeviceSynchronize();
         // prints the coordinates of each line with taxi id and switched x and y coordinates
          for(int i = 0; i < polyline_total_num_commas; i++) {
             int c_len = c_len_array[i];
@@ -842,20 +820,10 @@ int main() {
         delete [] buffer;
         delete [] len_array;
         delete [] offset_array;
-        delete [] comma_offset_array;
-        delete [] comma_len_array;
-        delete [] h_output_array;
 
-        delete [] line_idx_array;
         delete [] switched_array;
         delete [] c_len_array;
         delete [] c_offset_array;
-
-        delete [] polyline_array;
-        delete [] polyline_offset_array;
-        delete [] polyline_comma_len_array;
-        delete [] polyline_comma_offset_array;
-        delete [] p_output_array;
 
     }
 
