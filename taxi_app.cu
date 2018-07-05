@@ -312,7 +312,6 @@ void output_sort(int* input, int len, int* output) {
 
     __syncthreads();
 
-
 }
 
 
@@ -638,7 +637,7 @@ int main() {
         // function call to locate commas in input line
         merge_scan<<<dimGrid, dimBlock>>>(d_buffer, d_len_array, d_offset_array, d_output_array, d_stack, line_count, d_num_commas, d_SA_Table, d_total_num_commas, d_E, 0);
         
-        // sorts output 
+        //offset array has the correct offset values
         output_sort<<<1, NUM_THREADS>>> (d_num_commas, line_count, d_comma_offset_array);
         // copies number of commas to host memory
         cudaMemcpy(&total_num_commas, d_total_num_commas, sizeof(int), cudaMemcpyDeviceToHost);
@@ -688,8 +687,8 @@ int main() {
         // output to output sort function 
         int* d_polyline_comma_offset_array2;
         cudaMalloc((int**) &d_polyline_comma_offset_array2, sizeof(int) * (line_count + 1));
-
-        // sorts the output to have the array hold the correct index
+        
+        //offset array has the correct offset values
         output_sort<<<1, NUM_THREADS>>> (d_polyline_num_commas, line_count, d_polyline_comma_offset_array2);
 
         // finds the total number of commas in polyline
@@ -727,7 +726,7 @@ int main() {
         coord_len_offset<<<dimGridcoord, dimBlockcoord>>>(d_buffer, d_len_array, d_offset_array, d_line_num_array, d_polyline_array, d_polyline_offset_array, d_polyline_comma_offset_array2, polyline_total_num_commas, 
                                                           2, d_c_len_array, d_label_len_array);
         cudaMemcpy(c_len_array, d_c_len_array, polyline_total_num_commas * sizeof(int), cudaMemcpyDeviceToHost);
-        // sorts the output to hold correct indices
+        //offset array has the correct offset values
         output_sort<<<1, NUM_THREADS>>>(d_c_len_array, polyline_total_num_commas , d_c_offset_array);
         cudaMemcpy(c_offset_array, d_c_offset_array, (polyline_total_num_commas + 1) * sizeof(int), cudaMemcpyDeviceToHost);
 
