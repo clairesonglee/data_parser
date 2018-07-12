@@ -13,11 +13,11 @@ using namespace std;
 #define NUM_STATES 3
 #define NUM_CHARS  256
 #define NUM_THREADS 512
-#define NUM_LINES 324
+#define NUM_LINES 18200
 #define NUM_BLOCKS 400
 
-#define BUFFER_SIZE 25000000
-#define INPUT_FILE "./input_file.csv"
+#define BUFFER_SIZE 250000000 //in byte
+#define INPUT_FILE "./input/go_track_trackspoints.csv"
 #define CSV_FILE 1 // 1: csv file, 0: txt file
 
 
