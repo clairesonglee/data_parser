@@ -9,6 +9,9 @@
 using namespace std;
 
 #define num_data_type 10
+#define INPUT_FILE "./input_file.csv"
+//#define INPUT_FILE "./input/go_track_trackspoints.csv"
+
 
 typedef std::chrono::high_resolution_clock Clock;
 
@@ -71,7 +74,7 @@ void parsedata (string s, uint8_t* comma_indices) {
 
 const int max_length(){
 
-	std::ifstream is("./input_file.txt");   // open file
+	std::ifstream is(INPUT_FILE);   // open file
 	string line;
 	int length = 0; 
 
@@ -92,7 +95,7 @@ void seq_scan(uint8_t* comma_indices, int num_char) {
 
 int main() {
 
-	std::ifstream is("./input_file.txt");   // open file
+	std::ifstream is(INPUT_FILE);   // open file
 	string line;
 
 	//generate the tables
@@ -118,12 +121,13 @@ int main() {
 		int prev = 0; 
 		for(int i = 0; i < array_len; i++){
 			if(prev != comma_indices[i]) {
-				std::cout << i << " ";
+				//std::cout << i << " ";
 			}
 			prev = comma_indices[i];
 			comma_indices[i] = 0;
 		}
-		cout << endl;
+
+		//cout << endl;
 
 	}
 	is.close();
