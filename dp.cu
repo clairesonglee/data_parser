@@ -464,6 +464,7 @@ int main() {
         // close filestream
         is.close();
 
+        auto tt1 = Clock::now();
 
         //Memory allocation for kernel functions
 
@@ -498,10 +499,14 @@ int main() {
         int* d_total_num_commas;
         cudaMalloc((int**) &d_total_num_commas, sizeof(int));
 
+        auto tt2 = Clock::now();
+
+        cout <<"Device M A:" <<std::chrono::duration_cast<std::chrono::microseconds>(tt2 - tt1).count() << " microseconds" << endl;
 
         int temp = 0;
-
+        
         auto t1 = Clock::now();
+
         // copies host memory to device memory after allocation 
         cudaMemcpy(d_buffer, buffer, buffer_len * sizeof(char), cudaMemcpyHostToDevice);     
         cudaMemcpy(d_len_array, len_array, line_count * sizeof(int), cudaMemcpyHostToDevice);     
