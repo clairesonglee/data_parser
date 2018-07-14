@@ -13,11 +13,13 @@ using namespace std;
 #define NUM_STATES 3
 #define NUM_CHARS  256
 #define NUM_THREADS 512
-#define NUM_LINES 18200
+#define NUM_LINES 38000
 #define NUM_BLOCKS 400
 
 #define BUFFER_SIZE 250000000 //in byte
-#define INPUT_FILE "./input/go_track_trackspoints.csv"
+//#define INPUT_FILE "./input/go_track_trackspoints.csv"
+#define INPUT_FILE "./input/gtt_double.csv"
+
 #define CSV_FILE 1 // 1: csv file, 0: txt file
 
 
@@ -58,7 +60,7 @@ struct SA_op {
 */
 
 __global__
-void remove_empty_elements (int** input, int* len_array, int total_lines, int* index, int* temp_base, 
+void remove_empty_elements (int** input, int* len_array, int total_lines, long* index, long* temp_base, 
                             int* offset_array,  int* output, int* output_line_num, int taxi_application) {
 
     __shared__ int s_line_num;
@@ -73,6 +75,8 @@ void remove_empty_elements (int** input, int* len_array, int total_lines, int* i
     __syncthreads();
     // all threads have the same line_num
     line_num =  s_line_num;
+
+        //printf("line_num: %d\n", line_num);
 
     while(line_num < total_lines) {
 
@@ -92,6 +96,7 @@ void remove_empty_elements (int** input, int* len_array, int total_lines, int* i
         		//if the current character is in the line, it copies the value into the output array
         		if(loop < len){
                		 output[base + loop] = (input[line_num])[loop];
+                   //  printf("%d\n", input[line_num][loop]);
         		}
         	}
         	else {
@@ -106,7 +111,8 @@ void remove_empty_elements (int** input, int* len_array, int total_lines, int* i
         __syncthreads();
 
         if(threadIdx.x == 0) {
-        	//speical flag for taxi_app that puts 0 in front of all lines and saves all line_num for each coordinate
+        	
+            //speical flag for taxi_app that puts 0 in front of all lines and saves all line_num for each coordinate
         	if(taxi_application){
         		output[base] = 0;
                 output_line_num[base] = line_num;
@@ -126,8 +132,7 @@ void remove_empty_elements (int** input, int* len_array, int total_lines, int* i
 
 __global__
 void merge_scan (char* line, int* len_array, int* offset_array, int** output_array, 
-                 int* index, int total_lines, int* num_commas_array, SA* d_SA_Table, int* total_num_commas, uint8_t* d_E, int taxi_application){
-
+                 long* index, int total_lines, int* num_commas_array, SA* d_SA_Table, int* total_num_commas, uint8_t* d_E, int taxi_application){
 
     typedef cub::BlockScan<SA, NUM_THREADS> BlockScan_exclusive_scan; // change name
     typedef cub::BlockScan<int, NUM_THREADS> BlockScan_exclusive_sum; //
@@ -160,7 +165,7 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
     //if the current line is in the input file 
     while(line_num < total_lines ) {
 
-        temp_array_size = NUM_THREADS;
+        temp_array_size = 20;
         //dynamic memory allocation
         if(threadIdx.x == 0) {
             temp_output_array = (int*)malloc(sizeof(int) * temp_array_size);
@@ -469,7 +474,8 @@ int main() {
         //Memory allocation for kernel functions
 
         int buffer_len = offset_array[line_count];
-    
+      //  printf("line_count: %d\n", line_count);
+
         int** d_output_array;
         cudaMalloc((int**)&d_output_array, line_count * sizeof(int*));
 
@@ -490,11 +496,11 @@ int main() {
         int* d_comma_offset_array;
         cudaMalloc((int**)&d_comma_offset_array, (line_count + 1) * sizeof(int));
 
-        int* d_stack;
-        cudaMalloc((int**) &d_stack, sizeof(int));
+        long* d_stack;
+        cudaMalloc((long**) &d_stack, sizeof(long));
 
-        int* d_temp_base;
-        cudaMalloc((int**) &d_temp_base, sizeof(int));
+        long* d_temp_base;
+        cudaMalloc((long**) &d_temp_base, sizeof(long));
 
         int* d_total_num_commas;
         cudaMalloc((int**) &d_total_num_commas, sizeof(int));
@@ -503,7 +509,7 @@ int main() {
 
         cout <<"Device M A:" <<std::chrono::duration_cast<std::chrono::microseconds>(tt2 - tt1).count() << " microseconds" << endl;
 
-        int temp = 0;
+        long temp = 0;
         
         auto t1 = Clock::now();
 
@@ -511,12 +517,13 @@ int main() {
         cudaMemcpy(d_buffer, buffer, buffer_len * sizeof(char), cudaMemcpyHostToDevice);     
         cudaMemcpy(d_len_array, len_array, line_count * sizeof(int), cudaMemcpyHostToDevice);     
         cudaMemcpy(d_offset_array, offset_array, line_count * sizeof(int), cudaMemcpyHostToDevice);    
-        cudaMemcpy(d_stack, &temp, sizeof(int), cudaMemcpyHostToDevice);
-        cudaMemcpy(d_temp_base, &temp, sizeof(int), cudaMemcpyHostToDevice);
+        cudaMemcpy(d_stack, &temp, sizeof(long), cudaMemcpyHostToDevice);
+        cudaMemcpy(d_temp_base, &temp, sizeof(long), cudaMemcpyHostToDevice);
         cudaMemcpy(d_total_num_commas, &temp, sizeof(int), cudaMemcpyHostToDevice);
 
         cudaDeviceSynchronize();
         auto t2 = Clock::now();
+
 
         cout <<"Host to Device:" <<std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << " microseconds" << endl;
 
@@ -531,13 +538,26 @@ int main() {
         // function call to locate commas in input line
         merge_scan<<<dimGrid, dimBlock>>>(d_buffer, d_len_array, d_offset_array, d_output_array, d_stack, line_count, d_num_commas, d_SA_Table, d_total_num_commas, d_E, 0);
         
+
+
+        //    cudaDeviceSynchronize();
+        // cudaError_t e = cudaGetLastError();
+        // if(e!=cudaSuccess) {                                              
+        //     printf("Cuda failure %s:%d: '%s'\n",__FILE__,__LINE__,cudaGetErrorString(e));           
+        // } 
         //offset array has the correct offset values
         output_sort<<<1, NUM_THREADS>>> (d_num_commas, line_count, d_comma_offset_array);
+
+
         // copies number of commas to host memory
         cudaDeviceSynchronize();
         auto t4 = Clock::now();
 
+
         cudaMemcpy(&total_num_commas, d_total_num_commas, sizeof(int), cudaMemcpyDeviceToHost);
+
+
+
 
         // creates an array to hold commas in device memory
         int* d_final_array;
@@ -550,18 +570,20 @@ int main() {
 
         // launches kernel function to clear unnecessary information
         remove_empty_elements<<<dimGrid, dimBlock>>> (d_output_array, d_num_commas, line_count, d_stack, d_temp_base, d_comma_offset_array, d_final_array, d_final_array /* temp array */, 0);
+        
+
         cudaDeviceSynchronize();
         auto t6 = Clock::now();
 
         cout << "data trans:" << std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3 + t6 - t5).count() << " microseconds" << endl;
 
         int* num_commas = new int[line_count];
-        int* comma_offset_array = new int[line_count];
+        int* comma_offset_array = new int[line_count + 1];
         int* final_array = new int[total_num_commas];
 
         auto t7 = Clock::now();
         cudaMemcpy(num_commas, d_num_commas, line_count * sizeof(int), cudaMemcpyDeviceToHost);
-        cudaMemcpy(comma_offset_array, d_comma_offset_array, line_count * sizeof(int), cudaMemcpyDeviceToHost);
+        cudaMemcpy(comma_offset_array, d_comma_offset_array, (line_count + 1) * sizeof(int), cudaMemcpyDeviceToHost);
         cudaMemcpy(final_array, d_final_array,  total_num_commas * sizeof(int), cudaMemcpyDeviceToHost);     
 
         cudaDeviceSynchronize();
@@ -577,7 +599,7 @@ int main() {
         //     printf("\n");
         // }
 
-
+     
         // device memory
 
 
