@@ -13,12 +13,19 @@ using namespace std;
 #define NUM_STATES 3
 #define NUM_CHARS  256
 #define NUM_THREADS 512
-#define NUM_LINES 1311828
+#define NUM_LINES 51000
 #define NUM_BLOCKS 400
 
 #define BUFFER_SIZE 250000000 //in byte
 //#define INPUT_FILE "./input/go_track_trackspoints.csv"
-#define INPUT_FILE "./1987.csv"
+//#define INPUT_FILE "./input/gtt_double.csv"
+#define INPUT_FILE "./input/sfpd_plots.csv"
+//#define INPUT_FILE "./input/flight_1_rgb_1.csv.csv"
+//#define INPUT_FILE "./input/bacteria_4.csv"
+//#define INPUT_FILE "./input/nla_3.csv"
+//#define INPUT_FILE "./input/plot2_4.csv"
+
+
 
 #define CSV_FILE 1 // 1: csv file, 0: txt file
 
@@ -53,10 +60,10 @@ struct SA_op {
 };
 
 /*
-	remove_empty_elements:
+    remove_empty_elements:
 
-	This function transfers the data from the pre-allocated array into the correct sized output array in order to 
-	remove all internal fragmentations.
+    This function transfers the data from the pre-allocated array into the correct sized output array in order to 
+    remove all internal fragmentations.
 */
 
 __global__
@@ -80,41 +87,41 @@ void remove_empty_elements (int** input, int* len_array, int total_lines, long* 
 
     while(line_num < total_lines) {
 
-    	//get the length of the line
+        //get the length of the line
         len = len_array[line_num];
 
         //get the offset in order to save the output into the correct place
-		if(threadIdx.x == 0)
-			base = offset_array[line_num];
+        if(threadIdx.x == 0)
+            base = offset_array[line_num];
         __syncthreads();
         
         // for loop for the line that is longer than NUM_THREADS(number of threads)
         for(int loop = threadIdx.x; loop < len; loop += NUM_THREADS) {
 
-        	//special flag for the second run of data_parser. (if taxi_app is on, then it inserts comma in front of every line)
-        	if(!taxi_application) {
-        		//if the current character is in the line, it copies the value into the output array
-        		if(loop < len){
-               		 output[base + loop] = (input[line_num])[loop];
+            //special flag for the second run of data_parser. (if taxi_app is on, then it inserts comma in front of every line)
+            if(!taxi_application) {
+                //if the current character is in the line, it copies the value into the output array
+                if(loop < len){
+                     output[base + loop] = (input[line_num])[loop];
                    //  printf("%d\n", input[line_num][loop]);
-        		}
-        	}
-        	else {
-        		//if the current character is in the line, it copies the value into the output array
-        		//also save the line_num for the taxi application
-        		if(loop < len - 1 ){
-        			output_line_num[base + loop + 1] = line_num;
-        			output[base + loop + 1] = (input[line_num])[loop] + 2;
-        		}
-        	}
+                }
+            }
+            else {
+                //if the current character is in the line, it copies the value into the output array
+                //also save the line_num for the taxi application
+                if(loop < len - 1 ){
+                    output_line_num[base + loop + 1] = line_num;
+                    output[base + loop + 1] = (input[line_num])[loop] + 2;
+                }
+            }
         }
         __syncthreads();
 
         if(threadIdx.x == 0) {
-        	
+            
             //speical flag for taxi_app that puts 0 in front of all lines and saves all line_num for each coordinate
-        	if(taxi_application){
-        		output[base] = 0;
+            if(taxi_application){
+                output[base] = 0;
                 output_line_num[base] = line_num;
             }
             //free the input array(it is dynamically allocated in merge_scan function)
@@ -193,14 +200,15 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
 
             if(loop < len) {
                 c = line[loop + offset ];
-	            a = d_SA_Table[c];
+                a = d_SA_Table[c];
             }
+            start_state = prev_value.v[0];
+
             __syncthreads();
             //Merge SAs (merge the data to make one final sequence)
             BlockScan_exclusive_scan(temp_storage).ExclusiveScan(a, a, prev_value, SA_op(), temp_prev_val);
             __syncthreads();
            
-            start_state = prev_value.v[0];
             int state = a.v[start_state];
             int start = (int) d_E[(int) (NUM_CHARS * state + c)];
             int end;
@@ -210,34 +218,34 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
             //(if the array is full, then it doubles the size fo the array )
 
             if(prev_sum + temp_prev_sum > temp_array_size){
-            	int new_sum = prev_sum + temp_prev_sum;
-            	int* temp_ptr;
-            	//make a new array with double size
-            	if(threadIdx.x == 0) {
-            		while(new_sum > temp_array_size) {
-            			temp_array_size = temp_array_size * 2;
-            		}
-            		s_temp_array_size = temp_array_size;
-            		s_temp_ptr = (int*)malloc(sizeof(int) * temp_array_size);
-            	}
-            	//all threads have the same ptr and the array size
-            	__syncthreads();
-            	temp_array_size = s_temp_array_size;
-            	temp_ptr = s_temp_ptr;
-            	//copy the data 
-            	for(int j = 0; j < (int)ceilf((float) (prev_sum) / NUM_THREADS); j++) {
-            		int idx = threadIdx.x + j * NUM_THREADS;
-            		if(idx < prev_sum) {
-            			temp_ptr[idx] = output_array[line_num][idx];
-            		}
-            	}
-            	__syncthreads();
+                int new_sum = prev_sum + temp_prev_sum;
+                int* temp_ptr;
+                //make a new array with double size
+                if(threadIdx.x == 0) {
+                    while(new_sum > temp_array_size) {
+                        temp_array_size = temp_array_size * 2;
+                    }
+                    s_temp_array_size = temp_array_size;
+                    s_temp_ptr = (int*)malloc(sizeof(int) * temp_array_size);
+                }
+                //all threads have the same ptr and the array size
+                __syncthreads();
+                temp_array_size = s_temp_array_size;
+                temp_ptr = s_temp_ptr;
+                //copy the data 
+                for(int j = 0; j < (int)ceilf((float) (prev_sum) / NUM_THREADS); j++) {
+                    int idx = threadIdx.x + j * NUM_THREADS;
+                    if(idx < prev_sum) {
+                        temp_ptr[idx] = output_array[line_num][idx];
+                    }
+                }
+                __syncthreads();
 
-            	//free the old array
-            	if(threadIdx.x == 0) {
-            		free(output_array[line_num]);
+                //free the old array
+                if(threadIdx.x == 0) {
+                    free(output_array[line_num]);
                     output_array[line_num] = temp_ptr;
-            	}	
+                }   
             }
 
 
@@ -250,9 +258,11 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
             }
 
             //save the end values for the next iteration
-            if(threadIdx.x == 0) {
-            	prev_value = temp_prev_val;
-            	prev_sum += temp_prev_sum;
+            if(threadIdx.x == NUM_THREADS - 1) {
+                //prev_value = temp_prev_val;
+                prev_value = a;
+
+                prev_sum += temp_prev_sum;
             }
 
             __syncthreads();
@@ -262,9 +272,9 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
 
         //if the last thread saves the number of commas in the line
         if(loop == len - 1) {
-        	//for the taxi app, it stores one more space (in front of every line) - this will be filled in remove_empty_elements kernel function
-        	if(taxi_application)
-				prev_sum++;
+            //for the taxi app, it stores one more space (in front of every line) - this will be filled in remove_empty_elements kernel function
+            if(taxi_application)
+                prev_sum++;
             num_commas_array[line_num] = prev_sum;
             //atomic operation to track total number of commas in the input file to properly allocated the space for the output array
             int temp = atomicAdd(total_num_commas, prev_sum);
@@ -280,7 +290,7 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
 }
 
 /*
-	This is just a function that calles ExclusiveSum function.
+    This is just a function that calles ExclusiveSum function.
 */
 
 __global__
@@ -294,24 +304,24 @@ void output_sort(int* input, int len, int* output) {
 
     //if the len is longer than the number of threads
     for(int ph = 0; ph < (int)ceilf((float) (len) / NUM_THREADS); ph ++) {
-    	int loop = threadIdx.x + ph * NUM_THREADS;
-    	temp_prev_sum = prev_sum;
+        int loop = threadIdx.x + ph * NUM_THREADS;
+        temp_prev_sum = prev_sum;
 
-	    int start = input[loop];
-	    int end;
-	    BlockScan(temp_storage).ExclusiveSum(start, end, temp_prev_sum);
-	    
-	    if(loop < len)
-	    	output[loop] = end + prev_sum;
-	    __syncthreads();
-	    //save the last value as well (the output array has one more element than the input array because the first element is 0)
+        int start = input[loop];
+        int end;
+        BlockScan(temp_storage).ExclusiveSum(start, end, temp_prev_sum);
+        
+        if(loop < len)
+            output[loop] = end + prev_sum;
+        __syncthreads();
+        //save the last value as well (the output array has one more element than the input array because the first element is 0)
         if(loop == len - 1)
             output[loop + 1] = temp_prev_sum + prev_sum;
         __syncthreads();
         
-	    if (threadIdx.x == 0)
-	    	prev_sum += temp_prev_sum;
-	    __syncthreads();
+        if (threadIdx.x == 0)
+            prev_sum += temp_prev_sum;
+        __syncthreads();
 
     }
 
@@ -334,7 +344,7 @@ void clear_array (int* input_array, int len) {
 
 int     D[NUM_STATES][NUM_CHARS];
 uint8_t E[NUM_STATES][NUM_CHARS];
-SA 		SA_Table[NUM_CHARS];
+SA      SA_Table[NUM_CHARS];
 
 void add_transition (int state, uint8_t input, int next_state) 
 {
@@ -359,11 +369,11 @@ void add_default_emission(int state, uint8_t value)
 }
 
 void SA_generate () {
-	for (int i = 0; i < NUM_CHARS; i++) {
-		for(int j = 0; j < NUM_STATES; j++) {
-			(SA_Table[i]).v[j] = D[j][i];
-		}
-	}
+    for (int i = 0; i < NUM_CHARS; i++) {
+        for(int j = 0; j < NUM_STATES; j++) {
+            (SA_Table[i]).v[j] = D[j][i];
+        }
+    }
 }
 
 
@@ -375,9 +385,9 @@ void Dtable_generate()
     add_default_transition(2 , 1);
    // add_default_transition(3 , 0);
 
-    add_transition(0, '[', 1);
+    add_transition(0, '{', 1);
     add_transition(1, '\\', 2);
-    add_transition(1, ']', 0);
+    add_transition(1, '}', 0);
  //   add_transition(0, '\\', 3);
 }
 
@@ -505,6 +515,7 @@ int main() {
         int* d_total_num_commas;
         cudaMalloc((int**) &d_total_num_commas, sizeof(int));
 
+        cudaDeviceSynchronize();
         auto tt2 = Clock::now();
 
         cout <<"Device M A:" <<std::chrono::duration_cast<std::chrono::microseconds>(tt2 - tt1).count() << " microseconds" << endl;
@@ -590,14 +601,14 @@ int main() {
         auto t8 = Clock::now();
         cout << "Device to Host:" << std::chrono::duration_cast<std::chrono::microseconds>(t8 - t7).count() << " microseconds" << endl;
 
-        // for(int i = 0; i < line_count; i++){
-        //     int len = num_commas[i];
-        //     int off = comma_offset_array[i];
-        //     for(int j = 0; j < len; j++){
-        //         printf("%d ", final_array[off + j]);
-        //     }
-        //     printf("\n");
-        // }
+        for(int i = 0; i < line_count; i++){
+            int len = num_commas[i];
+            int off = comma_offset_array[i];
+            for(int j = 0; j < len; j++){
+                printf("%d ", final_array[off + j]);
+            }
+            printf("\n");
+        }
 
      
         // device memory
