@@ -3,13 +3,15 @@
 #include <vector>
 #include <string>
 #include <stdio.h> // JDB -- should not be needed
-#include<chrono>
+#include <chrono>
 
 
 using namespace std;
 
 #define num_data_type 10
-#define INPUT_FILE "./input_file.csv"
+//#define INPUT_FILE "./input_file.csv"
+#define INPUT_FILE "./input/nla.csv"
+
 //#define INPUT_FILE "./input/go_track_trackspoints.csv"
 
 
@@ -95,48 +97,103 @@ void seq_scan(uint8_t* comma_indices, int num_char) {
 
 int main() {
 
-	std::ifstream is(INPUT_FILE);   // open file
+	auto t1 = Clock::now();
+	std::vector<std::vector<int>> output_vec;
+	std::ifstream is(INPUT_FILE);
 	string line;
 
-	//generate the tables
-	Dtable_generate();
-	Etable_generate();
+	int state = 0;
 
-	// initialize bit vector
-	const int array_len = max_length();	
-	uint8_t* comma_indices = new uint8_t[array_len];
+	while(getline(is, line)) {
+		std::vector<int> temp_vec;
 
-	for (int i = 0; i < array_len; i++) {
-		comma_indices[i] = 0;
-	}
-
-                auto t1 = Clock::now();
-
-	while (getline(is, line)) { 
-
-
-		parsedata(line, comma_indices); 
-		seq_scan(comma_indices, array_len);
-		
-		int prev = 0; 
-		for(int i = 0; i < array_len; i++){
-			if(prev != comma_indices[i]) {
-				//std::cout << i << " ";
+		int len = line.length();
+		for(int i = 0; i < len; i++){
+			if(state == 0 && line[i] == ',') {
+				temp_vec.push_back(i);
 			}
-			prev = comma_indices[i];
-			comma_indices[i] = 0;
+			char c = line[i];
+			if(state == 0) {
+				if(c == '{')
+					state = 1;
+				else 
+					state = 0;
+			}
+			else if(state == 1){
+				if( c == '}')
+					state = 0;
+				else if (c == '\\')
+					state = 2;
+				else
+					state = 1;
+			}
+			else {
+				state = 2;
+			}
 		}
 
-		//cout << endl;
-
+		output_vec.push_back(temp_vec);
 	}
-	is.close();
 
-                auto t2 = Clock::now();
+    auto t2 = Clock::now();
 
-        cout << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << " microseconds" << endl;
+     cout << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << " microseconds" << endl;
+	/*
 
-	delete [] comma_indices;
+	int len = output_vec.size();
+	for(int i = 0; i < len; i++){
+		int temp_len = output_vec[i].size();
+		for(int j = 0; j < temp_len; j++) {
+			printf("%d ", (output_vec[i])[j]);
+		}
+		printf("\n");
+	}
+
+	*/
+
+
+	// std::ifstream is(INPUT_FILE);   // open file
+	// string line;
+
+	// //generate the tables
+	// Dtable_generate();
+	// Etable_generate();
+
+	// // initialize bit vector
+	// const int array_len = max_length();	
+	// uint8_t* comma_indices = new uint8_t[array_len];
+
+	// for (int i = 0; i < array_len; i++) {
+	// 	comma_indices[i] = 0;
+	// }
+
+ //     auto t1 = Clock::now();
+
+	// while (getline(is, line)) { 
+
+
+	// 	parsedata(line, comma_indices); 
+	// 	seq_scan(comma_indices, array_len);
+		
+	// 	int prev = 0; 
+	// 	for(int i = 0; i < array_len; i++){
+	// 		if(prev != comma_indices[i]) {
+	// 			//std::cout << i << " ";
+	// 		}
+	// 		prev = comma_indices[i];
+	// 		comma_indices[i] = 0;
+	// 	}
+
+	// 	//cout << endl;
+
+	// }
+	// is.close();
+
+ //    auto t2 = Clock::now();
+
+ //     cout << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << " microseconds" << endl;
+
+	// delete [] comma_indices;
     return 0;
 }
 
