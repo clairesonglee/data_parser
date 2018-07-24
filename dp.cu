@@ -19,7 +19,7 @@ using namespace std;
 #define BUFFER_SIZE 250000000 //in byte
 //#define INPUT_FILE "./input/go_track_trackspoints.csv"
 //#define INPUT_FILE "./input/gtt_double.csv"
-#define INPUT_FILE "./input/sfpd_plots_400.csv"
+//#define INPUT_FILE "./input/sfpd_plots_400.csv"
 //#define INPUT_FILE "./input/flight_1_rgb_1.csv.csv"
 //#define INPUT_FILE "./input/bacteria_4.csv"
 //#define INPUT_FILE "./input/nla.csv"
@@ -121,9 +121,16 @@ void remove_empty_elements (int** input, int* len_array, int** off_array, int to
         line_num =  s_line_num;
     }
 
-    if(threadIdx.x + blockIdx.x == 0) {
-        for(int i = 0; i < array_index[0]; i++) {
-            free(input[i]);
+    // if(threadIdx.x + blockIdx.x == 0) {
+    //     for(int i = 0; i < array_index[0]; i++) {
+    //         free(input[i]);
+    //     }
+    // }
+     int num_a = array_index[0];
+    for(int i = 0; i < (int)ceilf((float) (num_a) / (NUM_BLOCKS * NUM_THREADS)); i++) {
+        int loop = threadIdx.x + blockIdx.x * blockDim.x + i * NUM_BLOCKS * NUM_THREADS;
+        if(loop < num_a) {
+            free(input[loop]);
         }
     }
 
@@ -310,7 +317,7 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
     //     printf("setup time2: %d\n", clock_end);
     // }
 
-    __syncthreads();
+   // __syncthreads();
     // if(threadIdx.x + blockIdx.x == 0) {
     //     for(int i = 0; i < temp_array_size; i++){
     //         printf("%d ",output_array[0][i]);
@@ -430,6 +437,8 @@ void Etable_generate()
 
 int main() {
 
+
+    string INPUT_FILE = "./input/nla.csv";
 
     // generate transition tables for constant lookup time
     Dtable_generate();
@@ -646,7 +655,7 @@ int main() {
 
         cudaDeviceSynchronize();
         auto t8 = Clock::now();
-       cout << "Device to Host:" << std::chrono::duration_cast<std::chrono::microseconds>(t8 - t7).count() << " microseconds" << endl;
+        cout << "Device to Host:" << std::chrono::duration_cast<std::chrono::microseconds>(t8 - t7).count() << " microseconds" << endl;
 
         // for(int i = 0; i < line_count; i++){
         //     int len = num_commas[i];
@@ -685,6 +694,7 @@ int main() {
         delete [] final_array;
         delete [] num_commas;
         delete [] comma_offset_array;
+
     }
 
 
