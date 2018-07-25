@@ -5,6 +5,7 @@
 #include <string>
 #include <chrono>
 #include <cub/cub.cuh>
+#include <functional>
 
 #include <stdio.h> 
 
@@ -12,25 +13,27 @@ using namespace std;
 
 #define NUM_STATES 3
 #define NUM_CHARS  256
-#define NUM_THREADS 352
-#define NUM_LINES 51000
-#define NUM_BLOCKS 20
+#define NUM_THREADS 1024
+#define NUM_LINES 3358602
+#define NUM_BLOCKS 22
 
 #define BUFFER_SIZE 250000000 //in byte
 //#define INPUT_FILE "./input/go_track_trackspoints.csv"
-//#define INPUT_FILE "./input/gtt_double.csv"
-//#define INPUT_FILE "./input/sfpd_plots_400.csv"
-//#define INPUT_FILE "./input/flight_1_rgb_1.csv.csv"
-//#define INPUT_FILE "./input/bacteria_4.csv"
-//#define INPUT_FILE "./input/nla.csv"
+//#define INPUT_FILE "./input/gtt_100mb.csv"
+//#define INPUT_FILE "./input/sfpd_plots_400_100mb.csv"
+#define INPUT_FILE "./input/taxi_100mb.csv"
+//#define INPUT_FILE "./input/flight_1_rgb_1_100mb.csv"
+//#define INPUT_FILE "./input/bacteria_100mb.csv"
+//#define INPUT_FILE "./input/nla_100mb.csv"
 //#define INPUT_FILE "./input/plot2.csv"
 
 
 
 #define CSV_FILE 1 // 1: csv file, 0: txt file
 
-
 typedef std::chrono::high_resolution_clock Clock;
+
+
 
 template <int states>
 struct __align__(4) state_array{
@@ -41,7 +44,7 @@ struct __align__(4) state_array{
             v[i] = i;
     }
 
-    __device__ void set_SA(int index, int x) {
+    __device__ void set_SA(int index, uint8_t x) {
        v[index] = x;
     }
 
@@ -56,6 +59,29 @@ struct SA_op {
             c.v[i] = b.v[a.v[i]];
         
         return c;
+    }
+};
+
+// __shared__ typename BlockScan_exclusive_scan::TempStorage temp_storage;
+//     __shared__ typename BlockScan_exclusive_sum::TempStorage temp_storage2;
+//     __shared__ SA prev_value;
+//     __shared__ int prev_sum;
+//     __shared__ int s_line_num;
+//     __shared__ int s_array_num;
+//     __shared__ int s_mem_space;
+//     __shared__ int* s_current_array;
+//     __shared__ int stack;
+
+
+
+
+struct Smem_size : std::unary_function<int, int> {
+    int operator() (int x) {
+        int temp = sizeof(int) * 6;
+        temp += sizeof(int*);
+        temp += sizeof(SA) * 2;
+
+        return (temp * x);
     }
 };
 
@@ -127,8 +153,8 @@ void remove_empty_elements (int** input, int* len_array, int** off_array, int to
     //     }
     // }
      int num_a = array_index[0];
-    for(int i = 0; i < (int)ceilf((float) (num_a) / (NUM_BLOCKS * NUM_THREADS)); i++) {
-        int loop = threadIdx.x + blockIdx.x * blockDim.x + i * NUM_BLOCKS * NUM_THREADS;
+    for(int i = 0; i < (int)ceilf((float) (num_a) / (gridDim.x * NUM_THREADS)); i++) {
+        int loop = threadIdx.x + blockIdx.x * blockDim.x + i * gridDim.x * NUM_THREADS;
         if(loop < num_a) {
             free(input[loop]);
         }
@@ -136,54 +162,60 @@ void remove_empty_elements (int** input, int* len_array, int** off_array, int to
 
 }
 
+typedef cub::BlockScan<SA, NUM_THREADS > BlockScan_exclusive_scan; // change name
+typedef cub::BlockScan<int, NUM_THREADS > BlockScan_exclusive_sum; //
 
+//template <int thread_num>
 __global__
 void merge_scan (char* line, int* len_array, int* offset_array, int** output_array, 
-                 long* index, int* array_index, int total_lines, int* num_commas_array, int** off_commas_array, SA* d_SA_Table, int* total_num_commas, uint8_t* d_E, int taxi_application){
+                 long* index, int* array_index, int total_lines, int* num_commas_array, int** off_commas_array, SA* d_SA_Table, int* total_num_commas, uint8_t* d_E){
 
-    typedef cub::BlockScan<SA, NUM_THREADS> BlockScan_exclusive_scan; // change name
-    typedef cub::BlockScan<int, NUM_THREADS> BlockScan_exclusive_sum; //
+    
 
     __shared__ typename BlockScan_exclusive_scan::TempStorage temp_storage;
     __shared__ typename BlockScan_exclusive_sum::TempStorage temp_storage2;
     __shared__ SA prev_value;
     __shared__ int prev_sum;
-    __shared__ int s_line_num;
+    __shared__ int line_num;
     __shared__ int s_array_num;
     __shared__ int s_mem_space;
     __shared__ int* s_current_array;
     __shared__ int stack;
+    __shared__ int len;
+    __shared__ int offset;
+    __shared__ int array_num;
+
+    __shared__ SA temp_prev_val;
+    __shared__ int temp_array_size;
 
 
-    //clock_t c_start = clock();
+    // if(threadIdx.x + blockIdx.x == 0) {
+    //     printf("size of temp_storage: %d, %d\n", sizeof(BlockScan_exclusive_scan::TempStorage), sizeof(BlockScan_exclusive_sum::TempStorage));
+    // }
 
-    SA temp_prev_val;
+  //  SA temp_prev_val;
     int temp_prev_sum;
-
-    int len, offset;
-    int line_num;
     int start_state;
-
     int* temp_output_array;
-    int temp_array_size;
 
-    int array_num;
-    //int stack ;
+
 
     //grab the next/new line to compute
     if(threadIdx.x == 0) {
-        s_line_num = atomicInc((unsigned int*) index, INT_MAX);
-        s_array_num = atomicInc((unsigned int*) array_index, INT_MAX);
+        line_num = atomicInc((unsigned int*) index, INT_MAX);
+        array_num = atomicInc((unsigned int*) array_index, INT_MAX);
     }
 
     __syncthreads();
-    line_num = s_line_num;
-    array_num = s_array_num;
+    //line_num = s_line_num;
+   // array_num = s_array_num;
 
-    temp_array_size = total_lines * 20 / NUM_BLOCKS;
+    //temp_array_size = total_lines * 30 / NUM_BLOCKS;
     //temp_array_size = 100;
 
     if(threadIdx.x == 0) {
+        temp_array_size = total_lines * 30 / gridDim.x;
+
         temp_output_array = (int*)malloc(sizeof(int) * temp_array_size);
         output_array[array_num] = temp_output_array;
         s_current_array = output_array[array_num];
@@ -202,8 +234,11 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
     //if the current line is in the input file 
     while(line_num < total_lines ) {
         // clock_t c1 = clock();
-        len = len_array[line_num];
-        offset = offset_array[line_num];
+        if(threadIdx.x == 0) {
+            len = len_array[line_num];
+            offset = offset_array[line_num];
+        }
+        __syncthreads();
 
         //initialize starting values
         SA a;
@@ -230,6 +265,7 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
                 c = line[loop + offset ];
                 a = d_SA_Table[c];
             }
+
             start_state = prev_value.v[0];
 
             __syncthreads();
@@ -246,9 +282,10 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
             //(if the array is full, then it doubles the size fo the array )
 
             if(prev_sum + temp_prev_sum > s_mem_space){
-                printf("new array\n");
+               // printf("new array\n");
+                __syncthreads();
                  if(threadIdx.x == 0){        
-                     s_array_num = atomicInc((unsigned int*) array_index, INT_MAX);
+                     array_num = atomicInc((unsigned int*) array_index, INT_MAX);
                      temp_output_array = (int*)malloc(sizeof(int) * temp_array_size);
                      output_array[s_array_num] = temp_output_array;
                      s_current_array = output_array[s_array_num];
@@ -256,7 +293,7 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
                      stack = 0;
                   }
                   __syncthreads();
-                  array_num = s_array_num;
+                  //array_num = s_array_num;
             }
 
             __syncthreads();
@@ -264,9 +301,7 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
             //save the data (comma_index)
             if(start == 1 && loop < len) {
                 (output_array[array_num])[end + prev_sum + stack] = loop;
-                // if(array_num == 0) {
-                //     printf("end %d, stack: %d loop: %d\n", end + prev_sum, stack, loop);
-                // }
+
             }
 
             //save the end values for the next iteration
@@ -298,11 +333,12 @@ void merge_scan (char* line, int* len_array, int* offset_array, int** output_arr
             int temp = atomicAdd(total_num_commas, prev_sum);
         }
 
+         __syncthreads();
         //to get the next line
         if(threadIdx.x == 0) 
-            s_line_num = atomicInc((unsigned int*) index, INT_MAX);
+            line_num = atomicInc((unsigned int*) index, INT_MAX);
          __syncthreads();
-        line_num =  s_line_num;
+        
         // clock_t c6 = clock();
         //     clock_end += c6 - c5;   
     }
@@ -438,7 +474,7 @@ void Etable_generate()
 int main() {
 
 
-    string INPUT_FILE = "./input/nla.csv";
+    //string INPUT_FILE = "./input/nla.csv";
 
     // generate transition tables for constant lookup time
     Dtable_generate();
@@ -562,7 +598,7 @@ int main() {
         cudaDeviceSynchronize();
         auto tt2 = Clock::now();
 
-       // cout <<"Device M A:" <<std::chrono::duration_cast<std::chrono::microseconds>(tt2 - tt1).count() << " microseconds" << endl;
+        cout <<"Device M A:" <<std::chrono::duration_cast<std::chrono::microseconds>(tt2 - tt1).count() << " microseconds" << endl;
 
         long temp = 0;
         
@@ -582,7 +618,7 @@ int main() {
         cudaDeviceSynchronize();
         auto t2 = Clock::now();
 
-      //  cout <<"Host to Device:" <<std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << " microseconds" << endl;
+        cout <<"Host to Device:" <<std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() << " microseconds" << endl;
 
         // grid and block dimensions to launch kernel function
         dim3 dimGrid(NUM_BLOCKS,1,1);
@@ -590,9 +626,13 @@ int main() {
 
         int nBlocksPerSM_suggested;
         cudaOccupancyMaxActiveBlocksPerMultiprocessor(&nBlocksPerSM_suggested, merge_scan, NUM_THREADS, 4432);
-       // printf("nblock: %d\n", nBlocksPerSM_suggested);
+        printf("nblock: %d\n", nBlocksPerSM_suggested);
 
-        //dim3 dimGrid_Merge(nBlocksPerSM_suggested * 100, 1, 1);
+        // int nBlock2;
+        // int nGrid2;
+        // cudaOccupancyMaxPotentialBlockSizeVariableSMem(&nGrid2, &nBlock2, merge_scan, Smem_size());
+        // printf("nGrid2: %d, nBlock2: %d\n", nGrid2, nBlock2);
+
         
         //t3 ~ t4 for merge_can and output sort
         size_t limit = 0;
@@ -600,17 +640,27 @@ int main() {
         printf("cudaLimitMallocHeapSize: %u\n", (unsigned)limit);
         cudaDeviceSetLimit(cudaLimitMallocHeapSize, limit * 100);
 
+
+       // dim3 dimGrid_M(nGrid2, 1, 1);
+
+        dim3 dimGrid_M(nBlocksPerSM_suggested * 22, 1, 1);
+
         auto t3 = Clock::now();
 
-//         cudaDeviceSynchronize();
-//         cudaError_t e = cudaGetLastError();
-//         if(e!=cudaSuccess) {                                              
-//             printf("Cuda failure %s:%d: '%s'\n",__FILE__,__LINE__,cudaGetErrorString(e));           
-//         } 
-        // function call to locate commas in input line
-        merge_scan<<<dimGrid, dimBlock>>>(d_buffer, d_len_array, d_offset_array, d_output_array, d_stack, d_array_index, line_count, d_num_commas, d_off_commas, d_SA_Table, d_total_num_commas, d_E, 0);
-        
+        struct cudaFuncAttributes attr;
+        cudaFuncGetAttributes(&attr, merge_scan);
+        printf("reg: %d\n", attr.numRegs);
 
+
+ 
+        // function call to locate commas in input line
+       merge_scan <<<dimGrid_M, dimBlock>>>(d_buffer, d_len_array, d_offset_array, d_output_array, d_stack, d_array_index, line_count, d_num_commas, d_off_commas, d_SA_Table, d_total_num_commas, d_E);
+        
+        cudaDeviceSynchronize();
+        cudaError_t e = cudaGetLastError();
+        if(e!=cudaSuccess) {                                              
+            printf("Cuda failure %s:%d: '%s'\n",__FILE__,__LINE__,cudaGetErrorString(e));           
+        }
 
         //offset array has the correct offset values
         output_sort<<<1, NUM_THREADS>>> (d_num_commas, line_count, d_comma_offset_array);
@@ -636,7 +686,7 @@ int main() {
         auto t5 = Clock::now();
 
         // launches kernel function to clear unnecessary information
-        remove_empty_elements<<<dimGrid, dimBlock>>> (d_output_array, d_num_commas, d_off_commas, line_count, d_stack, d_temp_base, d_comma_offset_array, d_final_array, d_final_array /* temp array */, d_array_index, 0);
+        remove_empty_elements<<<dimGrid_M, dimBlock>>> (d_output_array, d_num_commas, d_off_commas, line_count, d_stack, d_temp_base, d_comma_offset_array, d_final_array, d_final_array /* temp array */, d_array_index, 0);
         
 
         cudaDeviceSynchronize();
@@ -668,6 +718,8 @@ int main() {
 
      
         // device memory
+
+        printf("size of SA : %d\n", sizeof(SA));
 
 
         cudaFree(d_output_array);
