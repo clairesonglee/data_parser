@@ -1,7 +1,7 @@
 #!/bin/sh
 """
 # change params 
-sed -i '' 's/^#define INPUT_FILE .*$/#define INPUT_FILE 'testing.csv'/' test.cpp
+sed -i 's/^#define INPUT_FILE .*$/#define INPUT_FILE '"testing.csv"'/' test.cu
 
 sed -i '' 's/^#define NUM_STATES .*$/#define NUM_STATES '$1'/' test.cpp
 
@@ -13,8 +13,6 @@ g++ -o test test.cpp && ./test
 # print output.txt contents 
 cat output.txt
 echo
-
-sed -i 's/^#define INPUT_FILE .*$/#define INPUT_FILE '"testing.csv"'/' test.cu
 
 
 """
