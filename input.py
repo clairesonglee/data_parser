@@ -4,7 +4,7 @@ import subprocess
 import shlex
 from subprocess import Popen
 
-INPUT_FILES = ["./test.csv"]
+INPUT_FILES = ["./nla.csv", "bacteria.csv"]
 NUM_STATES = [1,2,3,4,5,6,7,8,9,10]
 NUM_THREADS = [32,64,128,256]
 
